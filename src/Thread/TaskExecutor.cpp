@@ -164,6 +164,7 @@ vector<int> TaskExecutorGetterImp::getExecutorLoad() {
 
 void TaskExecutorGetterImp::getExecutorDelay(const function<void(const vector<int> &)> &callback) {
     std::shared_ptr<vector<int> > delay_vec = std::make_shared<vector<int>>(_threads.size());
+    // 当引用计数为0时则便是所有线程已遍历完毕
     shared_ptr<void> finished(nullptr, [callback, delay_vec](void *) {
         //此析构回调触发时，说明已执行完毕所有async任务
         callback((*delay_vec));

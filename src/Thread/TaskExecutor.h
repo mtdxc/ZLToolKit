@@ -54,12 +54,14 @@ private:
             _time = tm;
             _sleep = slp;
         }
-
+        // 休眠或运行
         bool _sleep;
+        // ms时间
         uint64_t _time;
     };
 
 private:
+    // 当前是否在休眠或运行
     bool _sleeping = true;
     uint64_t _last_sleep_time;
     uint64_t _last_wake_time;
