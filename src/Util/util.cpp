@@ -274,13 +274,25 @@ void replace(string &str, const string &old_str, const string &new_str,std::stri
     replace(str, old_str, new_str,pos + new_str.length());
 }
 
-bool start_with(const string &str, const string &substr) {
-    return str.find(substr) == 0;
+bool start_with(const string &str, const string &substr, bool ignore_case) {
+    if (str.length() < substr.length()) return false;
+    if (ignore_case) {
+        return 0 == strncasecmp(str.c_str(), substr.c_str(), substr.length());
+    }
+    else {
+        return 0 == strncmp(str.c_str(), substr.c_str(), substr.length());
+    }
 }
 
-bool end_with(const string &str, const string &substr) {
-    auto pos = str.rfind(substr);
-    return pos != string::npos && pos == str.size() - substr.size();
+bool end_with(const string &str, const string &substr, bool ignore_case) {
+    if (str.length() < substr.length()) return false;
+    const char* s = str.c_str() + str.length() - substr.length();
+    if (ignore_case) {
+        return 0 == strncasecmp(s, substr.c_str(), substr.length());
+    }
+    else {
+        return 0 == strncmp(s, substr.c_str(), substr.length());
+    }
 }
 
 bool isIP(const char *str) {

@@ -118,7 +118,7 @@ public:
 
 private:
     void run(size_t index) {
-        _on_setup(index);
+        _on_setup((int)index);
         Task::Ptr task;
         while (true) {
             startSleep();
