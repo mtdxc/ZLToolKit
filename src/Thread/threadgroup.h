@@ -40,15 +40,13 @@ public:
         if (!thrd) {
             return false;
         }
-        auto it = _threads.find(thrd->get_id());
-        return it != _threads.end();
+        return _threads.find(thrd->get_id()) != _threads.end();
     }
 
     template<typename F>
     std::thread *create_thread(F &&threadfunc) {
         auto thread_new = std::make_shared<std::thread>(threadfunc);
-        _thread_id = thread_new->get_id();
-        _threads[_thread_id] = thread_new;
+        _threads[thread_new->get_id()] = thread_new;
         return thread_new.get();
     }
 

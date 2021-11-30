@@ -108,10 +108,10 @@ public:
     }
 
     operator bool() {
-        return _data.operator bool ();
+        return !empty();
     }
     bool empty(){
-        return !bool();
+        return _data == nullptr;
     }
 private:
     std::shared_ptr<void> _data;
@@ -194,9 +194,9 @@ void replace(std::string &str, const std::string &old_str, const std::string &ne
 //判断是否为ip
 bool isIP(const char *str);
 //字符串是否以xx开头
-bool start_with(const std::string &str, const std::string &substr);
+bool start_with(const std::string &str, const std::string &substr, bool ignore_case = false);
 //字符串是否以xx结尾
-bool end_with(const std::string &str, const std::string &substr);
+bool end_with(const std::string &str, const std::string &substr, bool ignore_case = false);
 
 #ifndef bzero
 #define bzero(ptr,size)  memset((ptr),0,(size));
@@ -221,6 +221,10 @@ const char *strcasestr(const char *big, const char *little);
 
 #if !defined(strcasecmp)
     #define strcasecmp _stricmp
+#endif
+
+#if !defined(strncasecmp)
+	#define strncasecmp	_strnicmp
 #endif
 
 #ifndef ssize_t

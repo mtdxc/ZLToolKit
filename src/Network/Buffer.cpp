@@ -36,14 +36,6 @@ BufferRaw::Ptr BufferRaw::create() {
 
 ///////////////BufferList/////////////////////
 
-bool BufferList::empty() {
-    return _iovec_off == _iovec.size();
-}
-
-size_t BufferList::count() {
-    return _iovec.size() - _iovec_off;
-}
-
 #if defined(_WIN32)
 int sendmsg(int fd, const struct msghdr *msg, int flags) {
     int n = 0;
@@ -90,7 +82,8 @@ ssize_t BufferList::send_l(int fd, int flags, bool udp) {
         }
 
         msg.msg_iov = &(_iovec[_iovec_off]);
-        msg.msg_iovlen = (decltype(msg.msg_iovlen)) (_iovec.size() - _iovec_off);
+        msg.msg_iovlen = this->count();
+        // udp一次只发送一个包, 退化到sendto了
         decltype(msg.msg_iovlen) max = udp ? 1 : IOV_MAX;
         if (msg.msg_iovlen > max) {
             msg.msg_iovlen = max;
@@ -107,13 +100,13 @@ ssize_t BufferList::send_l(int fd, int flags, bool udp) {
         _remain_size = 0;
         if (!_cb) {
             _pkt_list.clear();
-            return n;
         }
-
-        //全部发送成功回调
-        while (!_pkt_list.empty()) {
-            _cb(_pkt_list.front().first, true);
-            _pkt_list.pop_front();
+        else {
+            //全部发送成功回调
+            while (!_pkt_list.empty()) {
+                _cb(_pkt_list.front().first, true);
+                _pkt_list.pop_front();
+            }
         }
         return n;
     }

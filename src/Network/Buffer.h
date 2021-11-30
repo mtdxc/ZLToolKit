@@ -55,6 +55,9 @@ private:
     ObjectStatistic<Buffer> _statistic;
 };
 
+/*
+要求 C 必须有 data 和 size 方法
+*/
 template <typename C>
 class BufferOffset : public  Buffer {
 public:
@@ -208,32 +211,34 @@ public:
 
     BufferLikeString() {
         _erase_head = 0;
-        _erase_tail = 0;
+        _erase_tail  = 0;
     }
 
     BufferLikeString(std::string str) {
         _str = std::move(str);
         _erase_head = 0;
-        _erase_tail = 0;
+        _erase_tail  = 0;
     }
 
     BufferLikeString &operator=(std::string str) {
         _str = std::move(str);
         _erase_head = 0;
-        _erase_tail = 0;
+        _erase_tail  = 0;
         return *this;
     }
 
     BufferLikeString(const char *str) {
-        _str = str;
+        if(str)
+            _str = str;
         _erase_head = 0;
-        _erase_tail = 0;
+        _erase_tail  = 0;
     }
 
     BufferLikeString &operator=(const char *str) {
-        _str = str;
+        if(str)
+            _str = str;
         _erase_head = 0;
-        _erase_tail = 0;
+        _erase_tail  = 0;
         return *this;
     }
 
@@ -284,7 +289,7 @@ public:
                     //移除太多数据了
                     throw std::out_of_range("BufferLikeString::erase out_of_range in head");
                 }
-                //设置起始便宜量
+                //设置起始偏移量
                 _erase_head += n;
                 data()[size()] = '\0';
                 return *this;
@@ -348,9 +353,11 @@ public:
             _str.push_back(c);
             return;
         }
-        data()[size()] = c;
-        --_erase_tail;
-        data()[size()] = '\0';
+        else {
+            data()[size()] = c;
+            --_erase_tail;
+            data()[size()] = '\0';
+        }
     }
 
     BufferLikeString &insert(size_t pos, const char *s, size_t n) {
@@ -366,17 +373,19 @@ public:
         if (len <= 0) {
             return *this;
         }
+        // data is in range of str, then modify _erase_head and _erase_tail
         if (data >= _str.data() && data < _str.data() + _str.size()) {
             _erase_head = data - _str.data();
             if (data + len > _str.data() + _str.size()) {
                 throw std::out_of_range("BufferLikeString::assign out_of_range");
             }
             _erase_tail = _str.data() + _str.size() - (data + len);
-            return *this;
         }
-        _str.assign(data, len);
-        _erase_head = 0;
-        _erase_tail = 0;
+        else {
+            _str.assign(data, len);
+            _erase_head = 0;
+            _erase_tail = 0;
+        }
         return *this;
     }
 
@@ -496,8 +505,8 @@ public:
     BufferList(List<std::pair<Buffer::Ptr, bool> > &list, SendResult cb = nullptr);
     ~BufferList();
 
-    bool empty();
-    size_t count();
+    bool empty() const { return _iovec.size() == _iovec_off; }
+    size_t count() const { return _iovec.size() - _iovec_off; }
     ssize_t send(int fd, int flags, bool udp);
 
 private:
