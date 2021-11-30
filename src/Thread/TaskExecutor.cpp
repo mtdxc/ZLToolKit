@@ -162,18 +162,18 @@ vector<int> TaskExecutorGetterImp::getExecutorLoad() {
 }
 
 void TaskExecutorGetterImp::getExecutorDelay(const function<void(const vector<int> &)> &callback) {
-    std::shared_ptr<vector<int> > delay_vec = std::make_shared<vector<int>>(_threads.size());
+    std::shared_ptr< vector<int> > delay_vec = std::make_shared<vector<int>>(_threads.size());
+	// 当引用计数为0时则便是所有线程已遍历完毕
     shared_ptr<void> finished(nullptr, [callback, delay_vec](void *) {
         //此析构回调触发时，说明已执行完毕所有async任务
         callback((*delay_vec));
     });
-    int index = 0;
-    for (auto &th : _threads) {
+    
+	for (int index = 0; index < this->_threads.size(); index++) {
         std::shared_ptr<Ticker> delay_ticker = std::make_shared<Ticker>();
-        th->async([finished, delay_vec, index, delay_ticker]() {
+		_threads[index]->async([finished, delay_vec, index, delay_ticker]() {
             (*delay_vec)[index] = (int) delay_ticker->elapsedTime();
         }, false);
-        ++index;
     }
 }
 

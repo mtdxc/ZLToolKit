@@ -35,7 +35,6 @@ public:
         if (auto_run) {
             start();
         }
-        _logger = Logger::Instance().shared_from_this();
     }
 
     ~ThreadPool() {
@@ -140,7 +139,6 @@ private:
     TaskQueue<Task::Ptr> _queue;
     thread_group _thread_group;
     Priority _priority;
-    Logger::Ptr _logger;
 };
 
 } /* namespace toolkit */

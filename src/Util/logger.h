@@ -160,10 +160,8 @@ public:
 
     template<typename T>
     LogContextCapture &operator<<(T &&data) {
-        if (!_ctx) {
-            return *this;
-        }
-        (*_ctx) << std::forward<T>(data);
+        if (_ctx)
+			(*_ctx) << std::forward<T>(data);
         return *this;
     }
 
@@ -399,7 +397,7 @@ extern Logger *g_defaultLogger;
 #define WarnL WriteL(::toolkit::LWarn)
 #define ErrorL WriteL(::toolkit::LError)
 
-//用法: LogD("%d + %s = %c", 1 "2", 'c');
+//用法: PrintD("%d + %s = %c", 1 , "2", 'c');
 #define PrintLog(level, ...) ::toolkit::LoggerWrapper::printLog(::toolkit::getLogger(), level, __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
 #define PrintT(...) PrintLog(::toolkit::LTrace, ##__VA_ARGS__)
 #define PrintD(...) PrintLog(::toolkit::LDebug, ##__VA_ARGS__)

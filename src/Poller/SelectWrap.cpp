@@ -35,7 +35,7 @@ void FdSet::fdSet(int fd) {
 }
 
 bool FdSet::isSet(int fd) {
-    return  FD_ISSET(fd, (fd_set *)_ptr);
+    return FD_ISSET(fd, (fd_set *)_ptr);
 }
 
 int zl_select(int cnt, FdSet *read, FdSet *write, FdSet *err, struct timeval *tv) {
