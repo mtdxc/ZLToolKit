@@ -66,6 +66,7 @@ public:
             _read_cb = [](const T &) {};
         } else {
             _read_cb = cb;
+            // 设置新回调的时候刷新gop
             flushGop();
         }
     }
@@ -103,6 +104,9 @@ private:
     std::function<void(const T &)> _read_cb = [](const T &) {};
 };
 
+/*
+缓存最近的gop缓冲区
+*/
 template<typename T>
 class _RingStorage {
 public:
@@ -177,7 +181,7 @@ template<typename T>
 class RingBuffer;
 
 /**
-* 环形缓存事件派发器，只能一个poller线程操作它
+* 环形缓存事件派发器，非线程安全的，只能在同一个poller线程中操作
 * @tparam T
 */
 template<typename T>
@@ -214,10 +218,10 @@ private:
                 it = _reader_map.erase(it);
                 --_reader_size;
                 onSizeChanged(false);
-                continue;
+            } else {
+                reader->onRead(in, is_key);
+                ++it;
             }
-            reader->onRead(in, is_key);
-            ++it;
         }
         _storage->write(std::move(in), is_key);
     }
@@ -229,6 +233,7 @@ private:
 
         std::weak_ptr<_RingReaderDispatcher> weakSelf = this->shared_from_this();
         auto on_dealloc = [weakSelf, poller](RingReader *ptr) {
+            // 保证在pool线程中，进行erase操作
             poller->async([weakSelf, ptr]() {
                 auto strongSelf = weakSelf.lock();
                 if (strongSelf && strongSelf->_reader_map.erase(ptr)) {
@@ -259,10 +264,12 @@ private:
 private:
     std::atomic_int _reader_size;
     std::function<void(int, bool)> _on_size_changed;
+    // 每个线程一个storage
     typename RingStorage::Ptr _storage;
     std::unordered_map<void *, std::weak_ptr<RingReader> > _reader_map;
 };
 
+// 带gopCache/RingStorage的缓冲区，内部处理跨poll的分发
 template<typename T>
 class RingBuffer : public std::enable_shared_from_this<RingBuffer<T> > {
 public:
@@ -316,10 +323,12 @@ public:
                 };
 
                 auto onDealloc = [poller](RingReaderDispatcher *ptr) {
+                    // call in poller
                     poller->async([ptr]() {
                         delete ptr;
                     });
                 };
+                // 拷贝一份storage到dispatch中去, 每个dispatch都有自己的一份storage
                 ref.reset(new RingReaderDispatcher(_storage->clone(), std::move(onSizeChanged)), std::move(onDealloc));
             }
             dispatcher = ref;
@@ -375,6 +384,7 @@ private:
     typename RingStorage::Ptr _storage;
     typename RingDelegate<T>::Ptr _delegate;
     onReaderChanged _on_reader_changed;
+    // 每个EventPool, 一个RingReaderDispatcher
     std::unordered_map<EventPoller::Ptr, typename RingReaderDispatcher::Ptr, HashOfPtr> _dispatcher_map;
 };
 
