@@ -217,9 +217,9 @@ void replace(std::string &str, const std::string &old_str, const std::string &ne
 //判断是否为ip
 bool isIP(const char *str);
 //字符串是否以xx开头
-bool start_with(const std::string &str, const std::string &substr);
+bool start_with(const std::string &str, const std::string &substr, bool ignore_case = false);
 //字符串是否以xx结尾
-bool end_with(const std::string &str, const std::string &substr);
+bool end_with(const std::string &str, const std::string &substr, bool ignore_case = false);
 //拼接格式字符串
 template<typename... Args>
 std::string str_format(const std::string &format, Args... args) {
