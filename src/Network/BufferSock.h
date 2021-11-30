@@ -23,7 +23,6 @@
 #include <functional>
 #include "Util/util.h"
 #include "Util/List.h"
-#include "Util/ResourcePool.h"
 #include "sockutil.h"
 #include "Buffer.h"
 

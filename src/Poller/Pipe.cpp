@@ -30,21 +30,13 @@ Pipe::Pipe(const onRead &cb, const EventPoller::Ptr &poller) {
         int nread = 1024;
 #endif //defined(_WIN32)
         ioctl(pipe->readFD(), FIONREAD, &nread);
-#if defined(_WIN32)
-        std::shared_ptr<char> buf(new char[nread + 1], [](char *ptr) {delete[] ptr; });
-        buf.get()[nread] = '\0';
-        nread = pipe->read(buf.get(), nread + 1);
-        if (cb) {
-            cb(nread, buf.get());
-        }
-#else
-        char buf[nread + 1];
+        std::vector<char> tmp(nread + 1);
+        char* buf = &tmp[0];
         buf[nread] = '\0';
-        nread = pipe->read(buf, sizeof(buf));
+        nread = pipe->read(buf, nread + 1);
         if (cb) {
             cb(nread, buf);
         }
-#endif // defined(_WIN32)
     });
 }
 

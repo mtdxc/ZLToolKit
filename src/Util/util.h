@@ -248,10 +248,10 @@ void replace(std::string &str, const std::string &old_str, const std::string &ne
 bool isIP(const char *str);
 //字符串是否以xx开头  [AUTO-TRANSLATED:585cf826]
 //Check if a string starts with xx
-bool start_with(const std::string &str, const std::string &substr);
+bool start_with(const std::string &str, const std::string &substr, bool ignore_case = false);
 //字符串是否以xx结尾  [AUTO-TRANSLATED:50cc80d7]
 //Check if a string ends with xx
-bool end_with(const std::string &str, const std::string &substr);
+bool end_with(const std::string &str, const std::string &substr, bool ignore_case = false);
 //拼接格式字符串  [AUTO-TRANSLATED:2f902ef7]
 //Concatenate format string
 template<typename... Args>

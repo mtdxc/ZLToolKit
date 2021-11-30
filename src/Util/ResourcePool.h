@@ -41,6 +41,8 @@ public:
      * @param ptr 裸指针
      * @param weakPool 管理本指针的循环池
      * @param quit 对接是否放弃循环使用
+     * @param on_recycle 循环使用前回调
+
      * Constructs a smart pointer
      * @param ptr Raw pointer
      * @param weakPool Circular pool managing this pointer
@@ -50,8 +52,20 @@ public:
      */
     shared_ptr_imp(
         C *ptr, const std::weak_ptr<ResourcePool_l<C>> &weakPool, std::shared_ptr<std::atomic_bool> quit,
-        const std::function<void(C *)> &on_recycle);
-
+        const std::function<void(C *)> &on_recycle)
+        : std::shared_ptr<C>(ptr, [weakPool, quit, on_recycle](C *ptr) {
+            if (on_recycle) {
+                on_recycle(ptr);
+            }
+            auto strongPool = weakPool.lock();
+            if (strongPool && !(*quit)) {
+                //循环池还在并且不放弃放入循环池  [AUTO-TRANSLATED:96e856da]
+                //Loop pool is still in and does not give up putting into loop pool
+                strongPool->recycle(ptr);
+            } else {
+                delete ptr;
+            }
+        }), _quit(std::move(quit)) {}
     /**
      * 放弃或恢复回到循环池继续使用
      * @param flag
@@ -203,25 +217,6 @@ public:
 private:
     std::shared_ptr<ResourcePool_l<C>> pool;
 };
-
-template<typename C>
-shared_ptr_imp<C>::shared_ptr_imp(C *ptr,
-                                  const std::weak_ptr<ResourcePool_l<C> > &weakPool,
-                                  std::shared_ptr<std::atomic_bool> quit,
-                                  const std::function<void(C *)> &on_recycle) :
-    std::shared_ptr<C>(ptr, [weakPool, quit, on_recycle](C *ptr) {
-            if (on_recycle) {
-                on_recycle(ptr);
-            }
-            auto strongPool = weakPool.lock();
-            if (strongPool && !(*quit)) {
-                //循环池还在并且不放弃放入循环池  [AUTO-TRANSLATED:96e856da]
-                //Loop pool is still in and does not give up putting into loop pool
-                strongPool->recycle(ptr);
-            } else {
-                delete ptr;
-            }
-        }), _quit(std::move(quit)) {}
 
 } /* namespace toolkit */
 #endif /* UTIL_RECYCLEPOOL_H_ */
