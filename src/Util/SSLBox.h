@@ -186,6 +186,7 @@ private:
 private:
     std::recursive_mutex _mtx;
     std::string _default_vhost[2];
+    // 服务器和客户端上下文
     std::shared_ptr<SSL_CTX> _ctx_empty[2];
     std::map<std::string, std::shared_ptr<SSL_CTX>, less_nocase> _ctxs[2];
     std::map<std::string, std::shared_ptr<SSL_CTX>, less_nocase> _ctxs_wildcards[2];
