@@ -48,12 +48,26 @@ UdpServer::UdpServer(const EventPoller::Ptr &poller) : Server(poller) {
     setOnCreateSocket(nullptr);
 }
 
+bool UdpServer::isServerFD(int fd) {
+    bool ret = _socket && _socket->rawFD() == fd;
+    if(!ret && _multi_poller) {
+        for (auto &pr : _cloned_server) {
+            if (pr.second->_socket && pr.second->_socket->rawFD() == fd) {
+                ret = true;
+                break;
+            }
+        }
+    }
+    return ret;
+}
+
 void UdpServer::setupEvent() {
     _socket = createSocket(_poller);
     std::weak_ptr<UdpServer> weak_self = std::static_pointer_cast<UdpServer>(shared_from_this());
-    _socket->setOnRead([weak_self](Buffer::Ptr &buf, struct sockaddr *addr, int addr_len) {
+    Socket *s = _socket.get();
+    _socket->setOnRead([weak_self, s](Buffer::Ptr &buf, struct sockaddr *addr, int addr_len) {
         if (auto strong_self = weak_self.lock()) {
-            strong_self->onRead(buf, addr, addr_len);
+            strong_self->onRead(s->rawFD(), buf, addr, addr_len);
         }
     });
 }
@@ -99,7 +113,7 @@ void UdpServer::start_l(uint16_t port, const std::string &host) {
             }
             auto &serverRef = _cloned_server[poller.get()];
             if (!serverRef) {
-                serverRef = onCreatServer(poller);
+                serverRef = onCreateServer(poller);
             }
             if (serverRef) {
                 serverRef->cloneFrom(*this);
@@ -129,7 +143,7 @@ void UdpServer::start_l(uint16_t port, const std::string &host) {
     addPort(port);
 }
 
-UdpServer::Ptr UdpServer::onCreatServer(const EventPoller::Ptr &poller) {
+UdpServer::Ptr UdpServer::onCreateServer(const EventPoller::Ptr &poller) {
     return Ptr(new UdpServer(poller), [poller](UdpServer *ptr) { poller->async([ptr]() { delete ptr; }); });
 }
 
@@ -142,15 +156,16 @@ void UdpServer::cloneFrom(const UdpServer &that) {
     // clone callbacks
     _on_create_socket = that._on_create_socket;
     _session_alloc = that._session_alloc;
+    // shared sessionMap and _session_mutex
     _session_mutex = that._session_mutex;
     _session_map = that._session_map;
     // clone properties
     this->mINI::operator=(that);
 }
 
-void UdpServer::onRead(Buffer::Ptr &buf, sockaddr *addr, int addr_len) {
+void UdpServer::onRead(int fd, Buffer::Ptr &buf, sockaddr *addr, int addr_len) {
     const auto id = makeSockId(addr, addr_len);
-    onRead_l(true, id, buf, addr, addr_len);
+    onRead_l(fd, id, buf, addr, addr_len);
 }
 
 static void emitSessionRecv(const SessionHelper::Ptr &helper, const Buffer::Ptr &buf) {
@@ -168,35 +183,36 @@ static void emitSessionRecv(const SessionHelper::Ptr &helper, const Buffer::Ptr 
     }
 }
 
-void UdpServer::onRead_l(bool is_server_fd, const UdpServer::PeerIdType &id, Buffer::Ptr &buf, sockaddr *addr, int addr_len) {
+void UdpServer::onRead_l(int fd, const UdpServer::PeerIdType &id, Buffer::Ptr &buf, sockaddr *addr, int addr_len) {
     // udp server fd收到数据时触发此函数；大部分情况下数据应该在peer fd触发，此函数应该不是热点函数  [AUTO-TRANSLATED:f347ff20]
     //This function is triggered when the udp server fd receives data; in most cases, the data should be triggered by the peer fd, and this function should not be a hot spot
     bool is_new = false;
     if (auto helper = getOrCreateSession(id, buf, addr, addr_len, is_new)) {
-        if (helper->session()->getPoller()->isCurrentThread()) {
+        auto session = helper->session();
+        if (session->getPoller()->isCurrentThread()) {
             //当前线程收到数据，直接处理数据  [AUTO-TRANSLATED:07e5a596]
             //The current thread receives data and processes it directly
             emitSessionRecv(helper, buf);
         } else {
             //数据漂移到其他线程，需要先切换线程  [AUTO-TRANSLATED:15235f6f]
             //Data migration to another thread requires switching threads first
-            WarnL << "UDP packet incoming from other thread";
+            if (session && session->_data_id != this_thread::get_id()) {
+                WarnL << "UdpSession " << session.get() << " dispatch " << fd 
+                    << " packet from thread " << this_thread::get_id() << "->" << session->getPoller()->getThreadId();
+                session->_data_id = this_thread::get_id();
+            }
             std::weak_ptr<SessionHelper> weak_helper = helper;
             //由于socket读buffer是该线程上所有socket共享复用的，所以不能跨线程使用，必须先转移走  [AUTO-TRANSLATED:1134538b]
             //Since the socket read buffer is shared and reused by all sockets on this thread, it cannot be used across threads and must be transferred first
             auto cacheable_buf = std::move(buf);
-            helper->session()->async([weak_helper, cacheable_buf]() {
+            session->async([weak_helper, cacheable_buf]() {
                 if (auto strong_helper = weak_helper.lock()) {
                     emitSessionRecv(strong_helper, cacheable_buf);
                 }
             });
         }
-
-#if !defined(NDEBUG)
-        if (!is_new) {
-            TraceL << "UDP packet incoming from " << (is_server_fd ? "server fd" : "other peer fd");
-        }
-#endif
+    } else if (_on_unhandle_data) {
+        _on_unhandle_data(fd, buf, addr, addr_len);
     }
 }
 
@@ -274,7 +290,7 @@ SessionHelper::Ptr UdpServer::createSession(const PeerIdType &id, Buffer::Ptr &b
             return it->second;
         }
 
-        assert(_socket);
+        // 创建一个udpsocket，绑定同样的目的地址，用于将同样目的地址的包抢过来(在linux下是可行的，否则得在收包时进行线程投递)
         socket->bindUdpSock(_socket->get_local_port(), _socket->get_local_ip());
         socket->bindPeerAddr((struct sockaddr *) addr_str.data(), addr_str.size());
 
@@ -282,9 +298,9 @@ SessionHelper::Ptr UdpServer::createSession(const PeerIdType &id, Buffer::Ptr &b
         // 把本服务器的配置传递给 Session  [AUTO-TRANSLATED:e3ed95ab]
         //Pass the configuration of this server to the Session
         helper->session()->attachServer(*this);
-
+        int fd = socket->rawFD();
         std::weak_ptr<SessionHelper> weak_helper = helper;
-        socket->setOnRead([weak_self, weak_helper, id](Buffer::Ptr &buf, struct sockaddr *addr, int addr_len) {
+        socket->setOnRead([weak_self, weak_helper, id, fd](Buffer::Ptr &buf, struct sockaddr *addr, int addr_len) {
             auto strong_self = weak_self.lock();
             if (!strong_self) {
                 return;
@@ -301,8 +317,9 @@ SessionHelper::Ptr UdpServer::createSession(const PeerIdType &id, Buffer::Ptr &b
 
             //收到非本peer fd的数据，让server去派发此数据到合适的session对象  [AUTO-TRANSLATED:e5f44445]
             //Received data from a non-current peer fd, let the server dispatch this data to the appropriate session object
-            strong_self->onRead_l(false, new_id, buf, addr, addr_len);
+            strong_self->onRead_l(fd, new_id, buf, addr, addr_len);
         });
+
         socket->setOnErr([weak_self, weak_helper, id](const SockException &err) {
             // 在本函数作用域结束时移除会话对象  [AUTO-TRANSLATED:b2ade305]
             //Remove the session object when this function scope ends

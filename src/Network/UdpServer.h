@@ -48,7 +48,7 @@ public:
 
     using Ptr = std::shared_ptr<UdpServer>;
     using onCreateSocket = std::function<Socket::Ptr(const EventPoller::Ptr &, const Buffer::Ptr &, struct sockaddr *, int)>;
-
+    using onUnHandleData = std::function<void(int fd, Buffer::Ptr &buf, struct sockaddr *addr, int addr_len)>;
     explicit UdpServer(const EventPoller::Ptr &poller = nullptr);
     ~UdpServer() override;
 
@@ -96,9 +96,11 @@ public:
      * [AUTO-TRANSLATED:4cf98e86]
      */
     void setOnCreateSocket(onCreateSocket cb);
-
+    void setOnUnHandleData(onUnHandleData cb) {
+        _on_unhandle_data = std::move(cb);
+    }
 protected:
-    virtual Ptr onCreatServer(const EventPoller::Ptr &poller);
+    virtual Ptr onCreateServer(const EventPoller::Ptr &poller);
     virtual void cloneFrom(const UdpServer &that);
 
 private:
@@ -131,7 +133,7 @@ private:
      */
     void onManagerSession();
 
-    void onRead(Buffer::Ptr &buf, struct sockaddr *addr, int addr_len);
+    void onRead(int fd, Buffer::Ptr &buf, struct sockaddr *addr, int addr_len);
 
     /**
      * @brief 接收到数据,可能来自server fd，也可能来自peer fd
@@ -149,7 +151,7 @@ private:
      
      * [AUTO-TRANSLATED:1c02c9de]
      */
-    void onRead_l(bool is_server_fd, const PeerIdType &id, Buffer::Ptr &buf, struct sockaddr *addr, int addr_len);
+    void onRead_l(int fd, const PeerIdType &id, Buffer::Ptr &buf, struct sockaddr *addr, int addr_len);
 
     /**
      * @brief 根据对端信息获取或创建一个会话
@@ -176,13 +178,14 @@ private:
     Socket::Ptr createSocket(const EventPoller::Ptr &poller, const Buffer::Ptr &buf = nullptr, struct sockaddr *addr = nullptr, int addr_len = 0);
 
     void setupEvent();
-
+    bool isServerFD(int fd);
 private:
     bool _cloned = false;
     bool _multi_poller;
     Socket::Ptr _socket;
     std::shared_ptr<Timer> _timer;
     onCreateSocket _on_create_socket;
+    onUnHandleData _on_unhandle_data;
     //cloned server共享主server的session map，防止数据在不同server间漂移  [AUTO-TRANSLATED:9a149e52]
     //Cloned server shares the session map with the main server, preventing data drift between different servers
     std::shared_ptr<std::recursive_mutex> _session_mutex;
