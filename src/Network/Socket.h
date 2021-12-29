@@ -299,6 +299,7 @@ public:
     //获取标识符  [AUTO-TRANSLATED:e623608c]
     //Get the identifier
     virtual std::string getIdentifier() const { return ""; }
+    std::string app_info;
 };
 
 #define TraceP(ptr) TraceL << ptr->getIdentifier() << "(" << ptr->get_peer_ip() << ":" << ptr->get_peer_port() << ") "
