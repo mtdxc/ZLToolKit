@@ -120,6 +120,7 @@ private:
 private:
     mutable std::string _id;
     std::string _net_adapter = "::";
+    // onManager 定时器
     std::shared_ptr<Timer> _timer;
     //对象个数统计  [AUTO-TRANSLATED:3b43e8c2]
     //Object count statistics
