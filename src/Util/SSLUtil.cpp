@@ -94,8 +94,8 @@ static int getCerType(BIO *bio, const char *passwd, X509 **x509, int type) {
 vector<shared_ptr<X509> > SSLUtil::loadPublicKey(const string &file_path_or_data, const string &passwd, bool isFile) {
     vector<shared_ptr<X509> > ret;
 #if defined(ENABLE_OPENSSL)
-    BIO *bio = isFile ? BIO_new_file((char *) file_path_or_data.data(), "r") :
-               BIO_new_mem_buf((char *) file_path_or_data.data(), file_path_or_data.size());
+    BIO *bio = isFile ? BIO_new_file((char *) file_path_or_data.data(), "r") 
+                      : BIO_new_mem_buf((char *) file_path_or_data.data(), file_path_or_data.size());
     if (!bio) {
         WarnL << getLastError();
         return ret;
@@ -110,7 +110,7 @@ vector<shared_ptr<X509> > SSLUtil::loadPublicKey(const string &file_path_or_data
     do {
         cer_type = getCerType(bio, passwd.data(), &x509, cer_type);
         if (cer_type) {
-            ret.push_back(shared_ptr<X509>(x509, [](X509 *ptr) { X509_free(ptr); }));
+            ret.push_back(shared_ptr<X509>(x509, &X509_free));
         }
     } while (cer_type != 0);
     return ret;
@@ -121,17 +121,17 @@ vector<shared_ptr<X509> > SSLUtil::loadPublicKey(const string &file_path_or_data
 
 shared_ptr<EVP_PKEY> SSLUtil::loadPrivateKey(const string &file_path_or_data, const string &passwd, bool isFile) {
 #if defined(ENABLE_OPENSSL)
-    BIO *bio = isFile ?
-               BIO_new_file((char *) file_path_or_data.data(), "r") :
-               BIO_new_mem_buf((char *) file_path_or_data.data(), file_path_or_data.size());
+    BIO *bio = isFile ? BIO_new_file((char *) file_path_or_data.data(), "r") 
+                      : BIO_new_mem_buf((char *) file_path_or_data.data(), file_path_or_data.size());
     if (!bio) {
         WarnL << getLastError();
         return nullptr;
     }
 
-    pem_password_cb *cb = [](char *buf, int size, int rwflag, void *userdata) -> int {
-        const string *passwd = (const string *) userdata;
-        size = size < (int) passwd->size() ? size : (int) passwd->size();
+    pem_password_cb *cb = [](char *buf, int size, int rwflag, void *userdata) -> int{
+        const string *passwd = (const string *)userdata;
+        if (size > passwd->size())
+            size = passwd->size();
         memcpy(buf, passwd->data(), size);
         return size;
     };
@@ -160,9 +160,7 @@ shared_ptr<EVP_PKEY> SSLUtil::loadPrivateKey(const string &file_path_or_data, co
         }
     }
 
-    return shared_ptr<EVP_PKEY>(evp_key, [](EVP_PKEY *ptr) {
-        EVP_PKEY_free(ptr);
-    });
+    return shared_ptr<EVP_PKEY>(evp_key, &EVP_PKEY_free);
 #else
     return nullptr;
 #endif //defined(ENABLE_OPENSSL)
@@ -175,15 +173,17 @@ shared_ptr<SSL_CTX> SSLUtil::makeSSLContext(const vector<shared_ptr<X509> > &cer
         WarnL << getLastError();
         return nullptr;
     }
-    int i = 0;
-    for (auto &cer : cers) {
+
+    shared_ptr<SSL_CTX> ret(ctx, &SSL_CTX_free);
+    for (int i = 0; i < cers.size(); i++) {
         //加载公钥
-        if (i++ == 0) {
+        if(0 == i){
             //SSL_CTX_use_certificate内部会调用X509_up_ref,所以这里不用X509_dup
-            SSL_CTX_use_certificate(ctx, cer.get());
-        } else {
+            SSL_CTX_use_certificate(ctx, cers[i].get());
+        }
+        else{
             //需要先拷贝X509对象，否则指针会失效
-            SSL_CTX_add_extra_chain_cert(ctx, X509_dup(cer.get()));
+            SSL_CTX_add_extra_chain_cert(ctx,X509_dup(cers[i].get()));
         }
     }
 
@@ -191,19 +191,17 @@ shared_ptr<SSL_CTX> SSLUtil::makeSSLContext(const vector<shared_ptr<X509> > &cer
         //提供了私钥
         if (SSL_CTX_use_PrivateKey(ctx, key.get()) != 1) {
             WarnL << "加载私钥失败:" << getLastError();
-            SSL_CTX_free(ctx);
             return nullptr;
         }
         //加载私钥成功
         if (SSL_CTX_check_private_key(ctx) != 1) {
             WarnL << "校验私钥失败:" << getLastError();
-            SSL_CTX_free(ctx);
             return nullptr;
         }
     }
 
     //公钥私钥匹配或者没有公私钥
-    return shared_ptr<SSL_CTX>(ctx, [](SSL_CTX *ptr) { SSL_CTX_free(ptr); });
+    return ret;
 #else
     return nullptr;
 #endif //defined(ENABLE_OPENSSL)
@@ -215,9 +213,8 @@ shared_ptr<SSL> SSLUtil::makeSSL(SSL_CTX *ctx) {
     if (!ssl) {
         return nullptr;
     }
-    return shared_ptr<SSL>(ssl, [](SSL *ptr) {
-        SSL_free(ptr);
-    });
+
+    return shared_ptr<SSL>(ssl, &SSL_free);
 #else
     return nullptr;
 #endif //defined(ENABLE_OPENSSL)
