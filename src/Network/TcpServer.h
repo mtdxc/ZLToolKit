@@ -104,12 +104,13 @@ public:
     Socket::Ptr socket() { return _socket; }
 protected:
     virtual void cloneFrom(const TcpServer &that);
-    virtual TcpServer::Ptr onCreatServer(const EventPoller::Ptr &poller);
+    virtual TcpServer::Ptr onCreateServer(const EventPoller::Ptr &poller);
 
     virtual Session::Ptr onAcceptConnection(const Socket::Ptr &sock);
     virtual Socket::Ptr onBeforeAcceptConnection(const EventPoller::Ptr &poller);
 
 private:
+    void startMangerTimer();
     void onManagerSession();
     Socket::Ptr createSocket(const EventPoller::Ptr &poller);
     void start_l(uint16_t port, const std::string &host, uint32_t backlog);
@@ -120,13 +121,15 @@ private:
     bool _multi_poller;
     bool _is_on_manager = false;
     bool _main_server = true;
-    std::weak_ptr<TcpServer> _parent;
     Socket::Ptr _socket;
     std::shared_ptr<Timer> _timer;
     Socket::onCreateSocket _on_create_socket;
     std::unordered_map<SessionHelper *, SessionHelper::Ptr> _session_map;
     std::function<SessionHelper::Ptr(const TcpServer::Ptr &server, const Socket::Ptr &)> _session_alloc;
+    // 所有EventPooler都创建一个clone实例
     std::unordered_map<const EventPoller *, Ptr> _cloned_server;
+    // cloneServer拥有_parent指向父对象
+    std::weak_ptr<TcpServer> _parent;
     //对象个数统计  [AUTO-TRANSLATED:3b43e8c2]
     //Object count statistics
     ObjectStatistic<TcpServer> _statistic;
