@@ -61,7 +61,7 @@ public:
     void setOnCreateSocket(onCreateSocket cb);
 
 protected:
-    virtual Ptr onCreatServer(const EventPoller::Ptr &poller);
+    virtual Ptr onCreateServer(const EventPoller::Ptr &poller);
     virtual void cloneFrom(const UdpServer &that);
 
 private:

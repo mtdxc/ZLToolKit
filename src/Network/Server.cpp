@@ -26,6 +26,7 @@ SessionHelper::SessionHelper(const std::weak_ptr<Server> &server, Session::Ptr s
     _cls = std::move(cls);
     //记录session至全局的map，方便后面管理
     _session_map = SessionMap::Instance().shared_from_this();
+    // getIdentifier是个虚方法，得等到构造完毕后才能调用，否则就能把此函数的实现放Session的构造中进行
     _identifier = _session->getIdentifier();
     _session_map->add(_identifier, _session);
 }
