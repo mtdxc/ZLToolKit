@@ -294,7 +294,10 @@ SSL_Box::SSL_Box(bool server_mode, bool enable, int buff_size) {
     if (_ssl) {
         _write_bio = BIO_new(BIO_s_mem());
         SSL_set_bio(_ssl.get(), _read_bio, _write_bio);
-        _server_mode ? SSL_set_accept_state(_ssl.get()) : SSL_set_connect_state(_ssl.get());
+        if (_server_mode)
+            SSL_set_accept_state(_ssl.get()); 
+        else
+            SSL_set_connect_state(_ssl.get());
     } else {
         WarnL << "ssl disabled!";
     }
@@ -325,20 +328,21 @@ void SSL_Box::onRecv(const Buffer::Ptr &buffer) {
         }
         return;
     }
+
 #if defined(ENABLE_OPENSSL)
     uint32_t offset = 0;
     while (offset < buffer->size()) {
         auto nwrite = BIO_write(_read_bio, buffer->data() + offset, buffer->size() - offset);
-        if (nwrite > 0) {
-            //部分或全部写入bio完毕
-            offset += nwrite;
-            flush();
-            continue;
+        if (nwrite <= 0) {
+            //nwrite <= 0,出现异常
+            ErrorL << "ssl error:" << SSLUtil::getLastError();
+            shutdown();
+            break;
         }
-        //nwrite <= 0,出现异常
-        ErrorL << "ssl error:" << SSLUtil::getLastError();
-        shutdown();
-        break;
+
+        //部分或全部写入bio完毕
+        offset += nwrite;
+        flush();
     }
 #endif //defined(ENABLE_OPENSSL)
 }
@@ -353,12 +357,15 @@ void SSL_Box::onSend(Buffer::Ptr buffer) {
         }
         return;
     }
+
 #if defined(ENABLE_OPENSSL)
     if (!_server_mode && !_send_handshake) {
         _send_handshake = true;
         SSL_do_handshake(_ssl.get());
     }
+    // 先放到队列中
     _buffer_send.emplace_back(std::move(buffer));
+    // 后刷新
     flush();
 #endif //defined(ENABLE_OPENSSL)
 }
@@ -465,17 +472,14 @@ void SSL_Box::flush() {
                 //部分或全部写入完毕
                 offset += nwrite;
                 flushWriteBio();
-                continue;
             }
-            //nwrite <= 0,出现异常
-            break;
-        }
-
-        if (offset != front->size()) {
-            //这个包未消费完毕，出现了异常,清空数据并断开ssl
-            ErrorL << "ssl error:" << SSLUtil::getLastError();
-            shutdown();
-            break;
+            else {
+                //nwrite <= 0,出现异常
+                //这个包未消费完毕，出现了异常,清空数据并断开ssl
+                ErrorL << "ssl error:" << SSLUtil::getLastError();
+                shutdown();
+                return;
+            }
         }
 
         //这个包消费完毕，开始消费下一个包

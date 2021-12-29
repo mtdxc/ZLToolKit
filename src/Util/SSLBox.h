@@ -129,6 +129,7 @@ private:
 
 private:
     std::string _default_vhost[2];
+    // 一个是服务器一个是客户端的上下文
     std::shared_ptr<SSL_CTX> _ctx_empty[2];
     std::map<std::string, std::shared_ptr<SSL_CTX>, less_nocase> _ctxs[2];
     std::map<std::string, std::shared_ptr<SSL_CTX>, less_nocase> _ctxs_wildcards[2];
