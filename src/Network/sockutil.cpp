@@ -27,17 +27,17 @@ namespace toolkit {
 
 #if defined(_WIN32)
 static onceToken g_token([]() {
-    WORD wVersionRequested = MAKEWORD(2, 2);
-    WSADATA wsaData;
-    WSAStartup(wVersionRequested, &wsaData);
+        WORD wVersionRequested = MAKEWORD(2, 2);
+        WSADATA wsaData;
+        WSAStartup(wVersionRequested, &wsaData);
 }, []() {
-    WSACleanup();
+        WSACleanup();
 });
 int ioctl(int fd, long cmd, u_long *ptr) {
-    return ioctlsocket(fd, cmd, ptr);
+        return ioctlsocket(fd, cmd, ptr);
 }
 int close(int fd) {
-    return closesocket(fd);
+        return closesocket(fd);
 }
 #endif // defined(_WIN32)
 
@@ -247,6 +247,7 @@ private:
             WarnL << "域名解析失败:" << host;
             return false;
         }
+        // 只用第一个ip
         item = *(answer->ai_addr);
         freeaddrinfo(answer);
         return true;
@@ -346,15 +347,14 @@ int SockUtil::getSockError(int fd) {
 
 string SockUtil::get_local_ip(int fd) {
     struct sockaddr addr;
-    struct sockaddr_in *addr_v4;
     socklen_t addr_len = sizeof(addr);
     //获取local ip and port
     memset(&addr, 0, sizeof(addr));
     if (0 == getsockname(fd, &addr, &addr_len)) {
         if (addr.sa_family == AF_INET) {
-            addr_v4 = (sockaddr_in *) &addr;
+            struct sockaddr_in* addr_v4 = (sockaddr_in*) &addr;
             return SockUtil::inet_ntoa(addr_v4->sin_addr);
-        }
+    }
     }
     return "";
 }
@@ -437,7 +437,7 @@ bool check_ip(string &address, const string &ip) {
         address = ip;
         uint32_t addressInNetworkOrder = htonl(inet_addr(ip.data()));
         if (/*(addressInNetworkOrder >= 0x0A000000 && addressInNetworkOrder < 0x0E000000) ||*/
-            (addressInNetworkOrder >= 0xAC100000 && addressInNetworkOrder < 0xAC200000) ||
+           (addressInNetworkOrder >= 0xAC100000 && addressInNetworkOrder < 0xAC200000) ||
             (addressInNetworkOrder >= 0xC0A80000 && addressInNetworkOrder < 0xC0A90000)) {
             //A类私有IP地址：
             //10.0.0.0～10.255.255.255
@@ -534,33 +534,44 @@ vector<map<string, string> > SockUtil::getInterfaceList() {
 
 uint16_t SockUtil::get_local_port(int fd) {
     struct sockaddr addr;
-    struct sockaddr_in *addr_v4;
     socklen_t addr_len = sizeof(addr);
     //获取remote ip and port
     if (0 == getsockname(fd, &addr, &addr_len)) {
         if (addr.sa_family == AF_INET) {
-            addr_v4 = (sockaddr_in *) &addr;
+            struct sockaddr_in* addr_v4 = (sockaddr_in*) &addr;
             return ntohs(addr_v4->sin_port);
-        }
+    }
     }
     return 0;
 }
 
 string SockUtil::get_peer_ip(int fd) {
     struct sockaddr addr;
-    struct sockaddr_in *addr_v4;
     socklen_t addr_len = sizeof(addr);
     //获取remote ip and port
     if (0 == getpeername(fd, &addr, &addr_len)) {
         if (addr.sa_family == AF_INET) {
-            addr_v4 = (sockaddr_in *) &addr;
+            struct sockaddr_in* addr_v4 = (sockaddr_in*) &addr;
             return SockUtil::inet_ntoa(addr_v4->sin_addr);
-        }
+    }
     }
     return "";
 }
 
-int SockUtil::bindSock(int fd, const char *ifr_ip, uint16_t port) {
+uint16_t SockUtil::get_peer_port(int fd) {
+    struct sockaddr addr;
+    socklen_t addr_len = sizeof(addr);
+    //获取remote ip and port
+    if (0 == getpeername(fd, &addr, &addr_len)) {
+        if (addr.sa_family == AF_INET) {
+            struct sockaddr_in* addr_v4 = (sockaddr_in*) &addr;
+            return ntohs(addr_v4->sin_port);
+    }
+    }
+    return 0;
+}
+
+int SockUtil::bindSock(int fd,const char *ifr_ip,uint16_t port){
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
@@ -598,6 +609,7 @@ int SockUtil::bindUdpSock(const uint16_t port, const char *local_ip, bool enable
 }
 
 int SockUtil::connectUdpSock(int sock, sockaddr *addr, int addr_len) {
+    if (addr_len <= 0) addr_len = sizeof(sockaddr);
     if (-1 == ::connect(sock, addr, addr_len)) {
         WarnL << "初始化 UDP 套接字连接关系失败: " << get_uv_errmsg(true);
         return -1;
@@ -612,20 +624,6 @@ int SockUtil::dissolveUdpSock(int sock) {
         //mac/ios时返回EAFNOSUPPORT错误
         WarnL << "解除 UDP 套接字连接关系失败: " << get_uv_errmsg(true);
         return -1;
-    }
-    return 0;
-}
-
-uint16_t SockUtil::get_peer_port(int fd) {
-    struct sockaddr addr;
-    struct sockaddr_in *addr_v4;
-    socklen_t addr_len = sizeof(addr);
-    //获取remote ip and port
-    if (0 == getpeername(fd, &addr, &addr_len)) {
-        if (addr.sa_family == AF_INET) {
-            addr_v4 = (sockaddr_in *) &addr;
-            return ntohs(addr_v4->sin_port);
-        }
     }
     return 0;
 }
@@ -808,12 +806,12 @@ bool SockUtil::in_same_lan(const char *myIp, const char *dstIp) {
 
 static void clearMulticastAllSocketOption(int socket) {
 #if defined(IP_MULTICAST_ALL)
-    // This option is defined in modern versions of Linux to overcome a bug in the Linux kernel's default behavior.
-    // When set to 0, it ensures that we receive only packets that were sent to the specified IP multicast address,
-    // even if some other process on the same system has joined a different multicast group with the same port number.
-    int multicastAll = 0;
-    (void)setsockopt(socket, IPPROTO_IP, IP_MULTICAST_ALL, (void*)&multicastAll, sizeof multicastAll);
-    // Ignore the call's result.  Should it fail, we'll still receive packets (just perhaps more than intended)
+  // This option is defined in modern versions of Linux to overcome a bug in the Linux kernel's default behavior.
+  // When set to 0, it ensures that we receive only packets that were sent to the specified IP multicast address,
+  // even if some other process on the same system has joined a different multicast group with the same port number.
+  int multicastAll = 0;
+  (void)setsockopt(socket, IPPROTO_IP, IP_MULTICAST_ALL, (void*)&multicastAll, sizeof multicastAll);
+  // Ignore the call's result.  Should it fail, we'll still receive packets (just perhaps more than intended)
 #endif
 }
 

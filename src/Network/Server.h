@@ -46,7 +46,10 @@ private:
 };
 
 class Server;
-
+/*
+管理session生存期;
+负责session的自注册(SessionMap[_identifier->session])
+*/
 class SessionHelper {
 public:
     using Ptr = std::shared_ptr<SessionHelper>;
@@ -67,7 +70,7 @@ private:
 // 后续将 TCP 与 UDP 服务通用部分加到这里.
 class Server : public std::enable_shared_from_this<Server>, public mINI {
 public:
-    using Ptr = std::shared_ptr<Server>;
+    using Ptr =  std::shared_ptr<Server>;
 
     explicit Server(EventPoller::Ptr poller = nullptr);
     virtual ~Server() = default;

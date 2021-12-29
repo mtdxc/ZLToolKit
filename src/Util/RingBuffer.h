@@ -66,6 +66,7 @@ public:
             _read_cb = [](const T &) {};
         } else {
             _read_cb = cb;
+            // 设置新回调的时候刷新gop
             flushGop();
         }
     }
@@ -103,6 +104,9 @@ private:
     std::function<void(const T &)> _read_cb = [](const T &) {};
 };
 
+/*
+缓存最近的gop缓冲区
+*/
 template<typename T>
 class _RingStorage {
 public:
@@ -127,9 +131,8 @@ public:
      void write(T in, bool is_key = true) {
         if (is_key) {
             //遇到I帧，那么移除老数据
-            _size = 0;
             _have_idr = true;
-            _data_cache.clear();
+            clearCache();
         }
 
         if (!_have_idr) {
@@ -139,9 +142,8 @@ public:
         _data_cache.emplace_back(std::make_pair(is_key, std::move(in)));
         if (++_size > _max_size) {
             //GOP缓存溢出，清空关老数据
-            _size = 0;
             _have_idr = false;
-            _data_cache.clear();
+            clearCache();
         }
     }
 
@@ -168,6 +170,7 @@ private:
 
 private:
     bool _have_idr = false;
+    // list的size可能不o(1)的，这里多维护个size
     int _size = 0;
     int _max_size;
     List<std::pair<bool, T> > _data_cache;
@@ -177,7 +180,7 @@ template<typename T>
 class RingBuffer;
 
 /**
-* 环形缓存事件派发器，只能一个poller线程操作它
+* 环形缓存事件派发器，非线程安全的，只能在同一个poller线程中操作
 * @tparam T
 */
 template<typename T>
@@ -214,10 +217,10 @@ private:
                 it = _reader_map.erase(it);
                 --_reader_size;
                 onSizeChanged(false);
-                continue;
+            } else {
+                reader->onRead(in, is_key);
+                ++it;
             }
-            reader->onRead(in, is_key);
-            ++it;
         }
         _storage->write(std::move(in), is_key);
     }
@@ -229,6 +232,7 @@ private:
 
         std::weak_ptr<_RingReaderDispatcher> weakSelf = this->shared_from_this();
         auto on_dealloc = [weakSelf, poller](RingReader *ptr) {
+            // 保证在pool线程中，进行erase操作
             poller->async([weakSelf, ptr]() {
                 auto strongSelf = weakSelf.lock();
                 if (strongSelf && strongSelf->_reader_map.erase(ptr)) {
@@ -259,10 +263,12 @@ private:
 private:
     std::atomic_int _reader_size;
     std::function<void(int, bool)> _on_size_changed;
+    // 每个线程一个storage
     typename RingStorage::Ptr _storage;
     std::unordered_map<void *, std::weak_ptr<RingReader> > _reader_map;
 };
 
+// 带gopCache/RingStorage的缓冲区，内部处理跨poll的分发
 template<typename T>
 class RingBuffer : public std::enable_shared_from_this<RingBuffer<T> > {
 public:
@@ -287,10 +293,10 @@ public:
 
         LOCK_GUARD(_mtx_map);
         for (auto &pr : _dispatcher_map) {
-            auto &second = pr.second;
-            //切换线程后触发onRead事件
-            pr.first->async([second, in, is_key]() {
-                second->write(std::move(const_cast<T &>(in)), is_key);
+            auto &disp = pr.second;
+            // 切换线程，通过RingReaderDispatcher::write方法，触发onRead事件
+            pr.first->async([disp, in, is_key]() {
+                disp->write(std::move(const_cast<T &>(in)), is_key);
             }, false);
         }
         _storage->write(std::move(in), is_key);
@@ -316,10 +322,12 @@ public:
                 };
 
                 auto onDealloc = [poller](RingReaderDispatcher *ptr) {
+                    // call in poller
                     poller->async([ptr]() {
                         delete ptr;
                     });
                 };
+                // 拷贝一份storage到dispatch中去, 每个dispatch都有自己的一份storage
                 ref.reset(new RingReaderDispatcher(_storage->clone(), std::move(onSizeChanged)), std::move(onDealloc));
             }
             dispatcher = ref;
@@ -375,6 +383,7 @@ private:
     typename RingStorage::Ptr _storage;
     typename RingDelegate<T>::Ptr _delegate;
     onReaderChanged _on_reader_changed;
+    // 每个EventPool, 一个RingReaderDispatcher
     std::unordered_map<EventPoller::Ptr, typename RingReaderDispatcher::Ptr, HashOfPtr> _dispatcher_map;
 };
 

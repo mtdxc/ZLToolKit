@@ -542,7 +542,7 @@ public:
     //发送Buffer对象
     SockSender &operator << (Buffer::Ptr buf);
 
-    //发送其他类型是数据
+    //发送其他类型的数据
     template<typename T>
     SockSender &operator << (T &&buf) {
         std::ostringstream ss;

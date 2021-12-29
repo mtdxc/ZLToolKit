@@ -485,8 +485,10 @@ int Socket::onAccept(const SockFD::Ptr &sock, int event) noexcept {
     int fd;
     while (true) {
         if (event & EventPoller::Event_Read) {
+            struct sockaddr addr;
+            socklen_t len = sizeof(struct sockaddr);
             do {
-                fd = (int)accept(sock->rawFd(), nullptr, nullptr);
+                fd = (int)accept(sock->rawFd(), &addr, &len);
             } while (-1 == fd && UV_EINTR == get_uv_error(true));
 
             if (fd == -1) {
@@ -513,7 +515,7 @@ int Socket::onAccept(const SockFD::Ptr &sock, int event) noexcept {
             try {
                 //此处捕获异常，目的是防止socket未accept尽，epoll边沿触发失效的问题
                 LOCK_GUARD(_mtx_event);
-                //拦截Socket对象的构造
+                //拦截Socket对象的构造 @todo pass addr and len
                 peer_sock = _on_before_accept(_poller);
             } catch (std::exception &ex) {
                 ErrorL << "触发socket before accept事件时,捕获到异常:" << ex.what();

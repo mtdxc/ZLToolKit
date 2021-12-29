@@ -84,6 +84,7 @@ private:
 
 private:
     std::string _net_adapter = "0.0.0.0";
+    // onManager 定时器
     std::shared_ptr<Timer> _timer;
     //对象个数统计
     ObjectStatistic<TcpClient> _statistic;
@@ -114,11 +115,12 @@ public:
 
     ssize_t send(Buffer::Ptr buf) override {
         if (_ssl_box) {
-            auto size = buf->size();
-            _ssl_box->onSend(std::move(buf));
-            return size;
+            _ssl_box->onSend(buf);
+            return buf->size();
         }
-        return TcpClientType::send(std::move(buf));
+        else {
+            return TcpClientType::send(std::move(buf));
+        }
     }
 
     //添加public_onRecv和public_send函数是解决较低版本gcc一个lambad中不能访问protected或private方法的bug

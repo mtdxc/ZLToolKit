@@ -49,9 +49,8 @@ public:
 
 protected:
     ssize_t send(Buffer::Ptr buf) override {
-        auto size = buf->size();
-        _ssl_box.onSend(std::move(buf));
-        return size;
+        _ssl_box.onSend(buf);
+        return buf->size();
     }
 
 private:
