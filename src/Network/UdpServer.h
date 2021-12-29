@@ -53,7 +53,7 @@ public:
     void setOnCreateSocket(onCreateSocket cb);
 
 protected:
-    virtual Ptr onCreatServer(const EventPoller::Ptr &poller);
+    virtual Ptr onCreateServer(const EventPoller::Ptr &poller);
     virtual void cloneFrom(const UdpServer &that);
 
 private:
@@ -68,8 +68,6 @@ private:
      * @brief 定时管理 Session, UDP 会话需要根据需要处理超时
      */
     void onManagerSession();
-
-    void onRead(const Buffer::Ptr &buf, struct sockaddr *addr, int addr_len);
 
     /**
      * @brief 接收到数据,可能来自server fd，也可能来自peer fd
