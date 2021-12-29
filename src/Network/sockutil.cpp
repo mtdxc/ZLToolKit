@@ -686,8 +686,8 @@ bool check_ip(string &address, const string &ip) {
 }
 
 string SockUtil::get_local_ip() {
-#if defined(__APPLE__)
     string address = "127.0.0.1";
+#if defined(__APPLE__)
     for_each_netAdapter_apple([&](struct ifaddrs *adapter) {
         string ip = SockUtil::inet_ntoa(adapter->ifa_addr);
         if (strstr(adapter->ifa_name, "docker")) {
@@ -695,9 +695,7 @@ string SockUtil::get_local_ip() {
         }
         return check_ip(address, ip);
     });
-    return address;
 #elif defined(_WIN32)
-    string address = "127.0.0.1";
     for_each_netAdapter_win32([&](PIP_ADAPTER_INFO adapter) {
         IP_ADDR_STRING *ipAddr = &(adapter->IpAddressList);
         while (ipAddr) {
@@ -712,9 +710,7 @@ string SockUtil::get_local_ip() {
         }
         return false;
     });
-    return address;
 #else
-    string address = "127.0.0.1";
     for_each_netAdapter_posix([&](struct ifreq *adapter){
         string ip = SockUtil::inet_ntoa(&(adapter->ifr_addr));
         if (strstr(adapter->ifr_name, "docker")) {
@@ -722,8 +718,8 @@ string SockUtil::get_local_ip() {
         }
         return check_ip(address,ip);
     });
-    return address;
 #endif
+    return address;
 }
 
 vector<map<string, string> > SockUtil::getInterfaceList() {
@@ -1097,6 +1093,7 @@ int SockUtil::leaveMultiAddrFilter(int fd, const char *addr, const char *src_ip,
 }
 
 bool SockUtil::is_ipv4(const char *host) {
+    if(!host || !host[0]) return true;
     struct in_addr addr;
     return 1 == inet_pton(AF_INET, host, &addr);
 }
@@ -1117,21 +1114,29 @@ socklen_t SockUtil::get_sock_len(const struct sockaddr *addr) {
 struct sockaddr_storage SockUtil::make_sockaddr(const char *host, uint16_t port) {
     struct sockaddr_storage storage;
     bzero(&storage, sizeof(storage));
-
+    if (!host || !host[0]) {
+        auto ipv4 = (struct sockaddr_in*)&storage;
+        ipv4->sin_addr.s_addr = INADDR_ANY;
+        ipv4->sin_family = AF_INET;
+        ipv4->sin_port = htons(port);
+        return storage;
+    }
     struct in_addr addr;
     struct in6_addr addr6;
     if (1 == inet_pton(AF_INET, host, &addr)) {
         // host是ipv4
-        reinterpret_cast<struct sockaddr_in &>(storage).sin_addr = addr;
-        reinterpret_cast<struct sockaddr_in &>(storage).sin_family = AF_INET;
-        reinterpret_cast<struct sockaddr_in &>(storage).sin_port = htons(port);
+        auto ipv4 = (struct sockaddr_in*)&storage;
+        ipv4->sin_addr = addr;
+        ipv4->sin_family = AF_INET;
+        ipv4->sin_port = htons(port);
         return storage;
     }
     if (1 == inet_pton(AF_INET6, host, &addr6)) {
         // host是ipv6
-        reinterpret_cast<struct sockaddr_in6 &>(storage).sin6_addr = addr6;
-        reinterpret_cast<struct sockaddr_in6 &>(storage).sin6_family = AF_INET6;
-        reinterpret_cast<struct sockaddr_in6 &>(storage).sin6_port = htons(port);
+        auto ipv6 = (struct sockaddr_in6*)&storage;
+        ipv6->sin6_addr = addr6;
+        ipv6->sin6_family = AF_INET6;
+        ipv6->sin6_port = htons(port);
         return storage;
     }
     throw std::invalid_argument(string("Not ip address: ") + host);

@@ -18,46 +18,42 @@ namespace toolkit {
 
 #if defined (OS_IPHONE)
 bool SockNum::setSocketOfIOS(int sock){
-    
-    CFStreamCreatePairWithSocket(NULL, (CFSocketNativeHandle)sock, (CFReadStreamRef *)(&readStream), (CFWriteStreamRef*)(&writeStream));
-    if (readStream)
-        CFReadStreamSetProperty((CFReadStreamRef)readStream, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanFalse);
-    if (writeStream)
-        CFWriteStreamSetProperty((CFWriteStreamRef)writeStream, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanFalse);
-    if ((readStream == NULL) || (writeStream == NULL))
+    CFReadStreamRef readRef, writeRef;
+    CFStreamCreatePairWithSocket(NULL, (CFSocketNativeHandle)sock, &readRef, &writeRef);
+    if ((readRef == NULL) || (readRef == NULL))
     {
         WarnL<<"Unable to create read and write stream...";
-        if (readStream)
+        if (readRef)
         {
-            CFReadStreamClose((CFReadStreamRef)readStream);
-            CFRelease(readStream);
-            readStream = NULL;
+            CFReadStreamClose(readRef);
+            CFRelease(readRef);
         }
-        if (writeStream)
+        if (writeRef)
         {
-            CFWriteStreamClose((CFWriteStreamRef)writeStream);
-            CFRelease(writeStream);
-            writeStream = NULL;
+            CFWriteStreamClose(writeRef);
+            CFRelease(writeRef);
         }
         return false;
     }
     
-    
-    Boolean r1 = CFReadStreamSetProperty((CFReadStreamRef)readStream, kCFStreamNetworkServiceType, kCFStreamNetworkServiceTypeVoIP);
-    Boolean r2 = CFWriteStreamSetProperty((CFWriteStreamRef)writeStream, kCFStreamNetworkServiceType, kCFStreamNetworkServiceTypeVoIP);
+    CFReadStreamSetProperty(readRef, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanFalse);
+    CFWriteStreamSetProperty(writeRef, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanFalse);
+
+    Boolean r1 = CFReadStreamSetProperty(readRef, kCFStreamNetworkServiceType, kCFStreamNetworkServiceTypeVoIP);
+    Boolean r2 = CFWriteStreamSetProperty(writeRef, kCFStreamNetworkServiceType, kCFStreamNetworkServiceTypeVoIP);
     
     if (!r1 || !r2)
     {
         return false;
     }
     
-    CFStreamStatus readStatus = CFReadStreamGetStatus((CFReadStreamRef)readStream);
-    CFStreamStatus writeStatus = CFWriteStreamGetStatus((CFWriteStreamRef)writeStream);
+    CFStreamStatus readStatus = CFReadStreamGetStatus(readRef);
+    CFStreamStatus writeStatus = CFWriteStreamGetStatus(writeRef);
     
     if ((readStatus == kCFStreamStatusNotOpen) || (writeStatus == kCFStreamStatusNotOpen))
     {
-        BOOL r1 = CFReadStreamOpen((CFReadStreamRef)readStream);
-        BOOL r2 = CFWriteStreamOpen((CFWriteStreamRef)writeStream);
+        BOOL r1 = CFReadStreamOpen(readRef);
+        BOOL r2 = CFWriteStreamOpen(writeRef);
         
         if (!r1 || !r2)
         {
@@ -65,6 +61,9 @@ bool SockNum::setSocketOfIOS(int sock){
             return false;
         }
     }
+    
+    readStream = (void *)readRef;
+    writeStream = (void *)writeRef;
     //NSLog(@"setSocketOfIOS:%d",sock);
     return true;
 }

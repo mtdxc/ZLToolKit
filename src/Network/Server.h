@@ -46,7 +46,10 @@ private:
 };
 
 class Server;
-
+/*
+管理session生存期;
+负责session的自注册(SessionMap[_identifier->session])
+*/
 class SessionHelper {
 public:
     bool enable = true;

@@ -83,6 +83,7 @@ private:
 private:
     mutable std::string _id;
     std::string _net_adapter = "::";
+    // onManager 定时器
     std::shared_ptr<Timer> _timer;
     //对象个数统计
     ObjectStatistic<TcpClient> _statistic;

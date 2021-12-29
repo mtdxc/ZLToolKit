@@ -18,11 +18,12 @@
 
 namespace toolkit {
 
-// 会话, 用于存储一对客户端与服务端间的关系
 class Server;
+class UdpServer;
 class TcpSession;
 class UdpSession;
 
+// 会话, 用于存储一对客户端与服务端间的关系
 class Session : public SocketHelper {
 public:
     using Ptr = std::shared_ptr<Session>;
@@ -44,6 +45,9 @@ public:
 
 private:
     mutable std::string _id;
+    friend class UdpServer;
+    // 调试用于记录最新收包线程
+    std::thread::id _data_id;
     std::unique_ptr<toolkit::ObjectStatistic<toolkit::TcpSession> > _statistic_tcp;
     std::unique_ptr<toolkit::ObjectStatistic<toolkit::UdpSession> > _statistic_udp;
 };
