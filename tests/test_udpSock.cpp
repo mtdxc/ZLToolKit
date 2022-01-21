@@ -29,10 +29,6 @@ void makeAddr(struct sockaddr *out,const char *ip,uint16_t port){
     bzero(&(servaddr.sin_zero), sizeof servaddr.sin_zero);
 }
 
-//获取struct sockaddr的IP字符串
-string getIP(struct sockaddr *addr){
-    return SockUtil::inet_ntoa(((struct sockaddr_in *)addr)->sin_addr);
-}
 int main() {
     //设置程序退出信号处理函数
     signal(SIGINT, [](int){exitProgram = true;});
@@ -47,7 +43,7 @@ int main() {
 
     sockRecv->setOnRead([](const Buffer::Ptr &buf, struct sockaddr *addr , int){
         //接收到数据回调
-        DebugL << "recv data form " << getIP(addr) << ":" << buf->data();
+        DebugL << "recv data form " << SockUtil::get_addr_string(addr) << ":" << buf->data();
     });
 
     struct sockaddr addrDst;

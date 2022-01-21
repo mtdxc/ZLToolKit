@@ -48,6 +48,29 @@ string SockUtil::inet_ntoa(struct in_addr &addr) {
     return buf;
 }
 
+string SockUtil::get_addr_string(struct sockaddr* addr, bool port) {
+    char buf[64] = {0};
+    inet_ntop(addr->sa_family, addr->sa_data + 2, buf, sizeof(buf));
+    if (port) {
+        int n = strlen(buf);
+        buf[n++] = ':';
+        sprintf(buf + n, "%d", htons(*((short*)addr->sa_data)));
+    }
+    return buf;
+}
+
+uint16_t SockUtil::get_addr_port(struct sockaddr* addr) {
+    switch (addr->sa_family) {
+    case AF_INET:
+        return htons(((sockaddr_in*)addr)->sin_port);
+    case AF_INET6:
+        return htons(((sockaddr_in6*)addr)->sin6_port);
+    default:
+        return 0;
+    }
+    return 0;
+}
+
 int SockUtil::setCloseWait(int fd, int second) {
     linger m_sLinger;
     //在调用closesocket()时还有数据未发送完，允许等待
@@ -351,10 +374,7 @@ string SockUtil::get_local_ip(int fd) {
     //获取local ip and port
     memset(&addr, 0, sizeof(addr));
     if (0 == getsockname(fd, &addr, &addr_len)) {
-        if (addr.sa_family == AF_INET) {
-            struct sockaddr_in* addr_v4 = (sockaddr_in*) &addr;
-            return SockUtil::inet_ntoa(addr_v4->sin_addr);
-    }
+        return SockUtil::get_addr_string(&addr);
     }
     return "";
 }
@@ -461,7 +481,7 @@ string SockUtil::get_local_ip() {
 #if defined(__APPLE__)
     string address = "127.0.0.1";
     for_each_netAdapter_apple([&](struct ifaddrs *adapter) {
-        string ip = SockUtil::inet_ntoa(((struct sockaddr_in *) adapter->ifa_addr)->sin_addr);
+        string ip = SockUtil::get_addr_string(adapter->ifa_addr);
         if (strstr(adapter->ifa_name, "docker")) {
             return false;
         }
@@ -488,7 +508,7 @@ string SockUtil::get_local_ip() {
 #else
     string address = "127.0.0.1";
     for_each_netAdapter_posix([&](struct ifreq *adapter){
-        string ip = SockUtil::inet_ntoa(((struct sockaddr_in*) &(adapter->ifr_addr))->sin_addr);
+        string ip = SockUtil::get_addr_string(&adapter->ifr_addr);
         if (strstr(adapter->ifr_name, "docker")) {
             return false;
         }
@@ -503,7 +523,7 @@ vector<map<string, string> > SockUtil::getInterfaceList() {
 #if defined(__APPLE__)
     for_each_netAdapter_apple([&](struct ifaddrs *adapter) {
         map<string, string> obj;
-        obj["ip"] = SockUtil::inet_ntoa(((struct sockaddr_in *) adapter->ifa_addr)->sin_addr);
+        obj["ip"] = SockUtil::get_addr_string(adapter->ifa_addr);
         obj["name"] = adapter->ifa_name;
         ret.emplace_back(std::move(obj));
         return false;
@@ -523,7 +543,7 @@ vector<map<string, string> > SockUtil::getInterfaceList() {
 #else
     for_each_netAdapter_posix([&](struct ifreq *adapter){
         map<string,string> obj;
-        obj["ip"] = SockUtil::inet_ntoa(((struct sockaddr_in*) &(adapter->ifr_addr))->sin_addr);
+        obj["ip"] = SockUtil::get_addr_string(&adapter->ifr_addr);
         obj["name"] = adapter->ifr_name;
         ret.emplace_back(std::move(obj));
         return false;
@@ -537,10 +557,7 @@ uint16_t SockUtil::get_local_port(int fd) {
     socklen_t addr_len = sizeof(addr);
     //获取remote ip and port
     if (0 == getsockname(fd, &addr, &addr_len)) {
-        if (addr.sa_family == AF_INET) {
-            struct sockaddr_in* addr_v4 = (sockaddr_in*) &addr;
-            return ntohs(addr_v4->sin_port);
-    }
+        return SockUtil::get_addr_port(&addr);
     }
     return 0;
 }
@@ -550,10 +567,7 @@ string SockUtil::get_peer_ip(int fd) {
     socklen_t addr_len = sizeof(addr);
     //获取remote ip and port
     if (0 == getpeername(fd, &addr, &addr_len)) {
-        if (addr.sa_family == AF_INET) {
-            struct sockaddr_in* addr_v4 = (sockaddr_in*) &addr;
-            return SockUtil::inet_ntoa(addr_v4->sin_addr);
-    }
+        return SockUtil::get_addr_string(&addr);
     }
     return "";
 }
@@ -563,10 +577,7 @@ uint16_t SockUtil::get_peer_port(int fd) {
     socklen_t addr_len = sizeof(addr);
     //获取remote ip and port
     if (0 == getpeername(fd, &addr, &addr_len)) {
-        if (addr.sa_family == AF_INET) {
-            struct sockaddr_in* addr_v4 = (sockaddr_in*) &addr;
-            return ntohs(addr_v4->sin_port);
-    }
+        return SockUtil::get_addr_port(&addr);
     }
     return 0;
 }
@@ -633,7 +644,7 @@ string SockUtil::get_ifr_ip(const char *if_name) {
     string ret;
     for_each_netAdapter_apple([&](struct ifaddrs *adapter) {
         if (strcmp(adapter->ifa_name, if_name) == 0) {
-            ret = SockUtil::inet_ntoa(((struct sockaddr_in *) adapter->ifa_addr)->sin_addr);
+            ret = SockUtil::get_addr_string(adapter->ifa_addr);
             return true;
         }
         return false;
@@ -658,7 +669,7 @@ string SockUtil::get_ifr_ip(const char *if_name) {
     string ret;
     for_each_netAdapter_posix([&](struct ifreq *adapter){
         if(strcmp(adapter->ifr_name,if_name) == 0) {
-            ret = SockUtil::inet_ntoa(((struct sockaddr_in*) &(adapter->ifr_addr))->sin_addr);
+            ret = SockUtil::get_addr_string(&adapter->ifr_addr);
             return true;
         }
         return false;
@@ -671,7 +682,7 @@ string SockUtil::get_ifr_name(const char *local_ip) {
 #if defined(__APPLE__)
     string ret = "en0";
     for_each_netAdapter_apple([&](struct ifaddrs *adapter) {
-        string ip = SockUtil::inet_ntoa(((struct sockaddr_in *) adapter->ifa_addr)->sin_addr);
+        string ip = SockUtil::get_addr_string(adapter->ifa_addr);
         if (ip == local_ip) {
             ret = adapter->ifa_name;
             return true;
@@ -697,7 +708,7 @@ string SockUtil::get_ifr_name(const char *local_ip) {
 #else
     string ret = "en0";
     for_each_netAdapter_posix([&](struct ifreq *adapter){
-        string ip = SockUtil::inet_ntoa(((struct sockaddr_in*) &(adapter->ifr_addr))->sin_addr);
+        string ip = SockUtil::get_addr_string(&adapter->ifr_addr);
         if(ip == local_ip) {
             ret = adapter->ifr_name;
             return true;
@@ -713,7 +724,7 @@ string SockUtil::get_ifr_mask(const char *if_name) {
     string ret;
     for_each_netAdapter_apple([&](struct ifaddrs *adapter) {
         if (strcmp(if_name, adapter->ifa_name) == 0) {
-            ret = SockUtil::inet_ntoa(((struct sockaddr_in *) adapter->ifa_netmask)->sin_addr);
+            ret = SockUtil::get_addr_string(adapter->ifa_netmask);
             return true;
         }
         return false;
@@ -748,7 +759,7 @@ string SockUtil::get_ifr_mask(const char *if_name) {
         return "";
     }
     close(fd);
-    return SockUtil::inet_ntoa(((struct sockaddr_in *) &(ifr_mask.ifr_netmask))->sin_addr);
+    return SockUtil::get_addr_string(&ifr_mask.ifr_netmask);
 #endif // defined(_WIN32)
 }
 
@@ -757,7 +768,7 @@ string SockUtil::get_ifr_brdaddr(const char *if_name) {
     string ret;
     for_each_netAdapter_apple([&](struct ifaddrs *adapter) {
         if (strcmp(if_name, adapter->ifa_name) == 0) {
-            ret = SockUtil::inet_ntoa(((struct sockaddr_in *) adapter->ifa_broadaddr)->sin_addr);
+            ret = SockUtil::get_addr_string(adapter->ifa_broadaddr);
             return true;
         }
         return false;
@@ -793,7 +804,7 @@ string SockUtil::get_ifr_brdaddr(const char *if_name) {
         return "";
     }
     close(fd);
-    return SockUtil::inet_ntoa(((struct sockaddr_in *) &(ifr_mask.ifr_broadaddr))->sin_addr);
+    return SockUtil::get_addr_string(&ifr_mask.ifr_broadaddr);
 #endif
 }
 

@@ -303,7 +303,8 @@ public:
      * 线程安全的in_addr转ip字符串
      */
     static std::string inet_ntoa(struct in_addr &addr);
-
+    static std::string get_addr_string(struct sockaddr* addr, bool port = false);
+    static uint16_t get_addr_port(struct sockaddr* addr);
     /**
      * 获取网卡ip
      * @param if_name 网卡名
