@@ -112,12 +112,14 @@ class _RingStorage {
 public:
     using Ptr = std::shared_ptr<_RingStorage>;
 
-    _RingStorage(int max_size) {
+    _RingStorage(int max_size, int max_gop_count) {
         //gop缓存个数不能小于32
         if(max_size < RING_MIN_SIZE){
             max_size = RING_MIN_SIZE;
         }
         _max_size = max_size;
+        _max_gop_count = max_gop_count;
+        _gop_count = 0;
     }
 
     ~_RingStorage() {}
@@ -131,28 +133,25 @@ public:
      void write(T in, bool is_key = true) {
         if (is_key) {
             //遇到I帧，那么移除老数据
-            _size = 0;
-            _have_idr = true;
-            _data_cache.clear();
+            _gop_count++;
+           if(_gop_count > _max_gop_count)
+               popFrontGop();
         }
-
-        if (!_have_idr) {
-            //缓存中没有关键帧，那么gop缓存无效
-            return;
-        }
+        if(_gop_count == 0)
+            return ;
         _data_cache.emplace_back(std::make_pair(is_key, std::move(in)));
         if (++_size > _max_size) {
-            //GOP缓存溢出，清空关老数据
-            _size = 0;
-            _have_idr = false;
-            _data_cache.clear();
+            popFrontGop();
+            if (_size > _max_size)
+                clearCache();
         }
     }
 
     Ptr clone() const {
         Ptr ret(new _RingStorage());
         ret->_size = _size;
-        ret->_have_idr = _have_idr;
+        ret->_gop_count = _gop_count;
+        ret->_max_gop_count = _max_gop_count;
         ret->_max_size = _max_size;
         ret->_data_cache = _data_cache;
         return ret;
@@ -162,8 +161,22 @@ public:
         return _data_cache;
     }
 
+    void popFrontGop() {
+        int gop_count = min(_gop_count, _max_gop_count);
+        while (!_data_cache.empty()) {
+            if(_data_cache.front().first){
+                if(_gop_count < gop_count)
+                    break;
+                _gop_count--;
+            }
+            _size--;
+            _data_cache.pop_front();
+        }
+    }
+
     void clearCache(){
         _size = 0;
+        _gop_count = 0;
         _data_cache.clear();
     }
 
@@ -171,7 +184,8 @@ private:
     _RingStorage() = default;
 
 private:
-    bool _have_idr = false;
+    int _max_gop_count;
+    int _gop_count;
     int _size = 0;
     int _max_size;
     List<std::pair<bool, T> > _data_cache;
@@ -281,7 +295,7 @@ public:
 
     RingBuffer(int max_size = 1024, const onReaderChanged &cb = nullptr) {
         _on_reader_changed = cb;
-        _storage = std::make_shared<RingStorage>(max_size);
+        _storage = std::make_shared<RingStorage>(max_size, 1);
     }
 
     ~RingBuffer() {}
