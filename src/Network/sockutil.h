@@ -61,6 +61,7 @@ public:
      * @return -1代表失败，其他为socket fd号
      */
     static int connect(const char *host, uint16_t port, bool async = true, const char *local_ip = "::", uint16_t local_port = 0);
+    static int connect_srt(const char *host, uint16_t port, bool async = true, const char *local_ip = "::", uint16_t local_port = 0);
 
     /**
      * 创建tcp监听套接字
@@ -70,6 +71,9 @@ public:
      * @return -1代表失败，其他为socket fd号
      */
     static int listen(const uint16_t port, const char *local_ip = "::", int back_log = 1024);
+    static int listen_srt(const uint16_t port, const char *local_ip = "::", int back_log = 1024);
+    static int set_srtopt(int fd, bool async = true);
+    static int set_sockopt(int fd, bool async = true);
 
     /**
      * 创建udp套接字

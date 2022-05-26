@@ -12,7 +12,7 @@
 #include "BufferSock.h"
 #include "Util/logger.h"
 #include "Util/uv_errno.h"
-
+#include "Network/Socket.h"
 #if defined(__linux__) || defined(__linux)
 
 #ifndef _GNU_SOURCE
@@ -250,7 +250,7 @@ BufferSendMsg::BufferSendMsg(List<std::pair<Buffer::Ptr, bool>> list, SendResult
 
 class BufferSendTo : public BufferList, public BufferCallBack {
 public:
-    BufferSendTo(List<std::pair<Buffer::Ptr, bool> > list, SendResult cb, bool is_udp);
+    BufferSendTo(List<std::pair<Buffer::Ptr, bool> > list, SendResult cb, int type);
     ~BufferSendTo() override = default;
 
     bool empty() override;
@@ -258,13 +258,13 @@ public:
     ssize_t send(int fd, int flags) override;
 
 private:
-    bool _is_udp;
+    int _type;
     size_t _offset = 0;
 };
 
-BufferSendTo::BufferSendTo(List<std::pair<Buffer::Ptr, bool>> list, BufferList::SendResult cb, bool is_udp)
+BufferSendTo::BufferSendTo(List<std::pair<Buffer::Ptr, bool>> list, BufferList::SendResult cb, int type)
     : BufferCallBack(std::move(list), std::move(cb))
-    , _is_udp(is_udp) {}
+    , _type(type) {}
 
 bool BufferSendTo::empty() {
     return _pkt_list.empty();
@@ -283,15 +283,28 @@ static inline BufferSock *getBufferSockPtr(std::pair<Buffer::Ptr, bool> &pr) {
 
 ssize_t BufferSendTo::send(int fd, int flags) {
     size_t sent = 0;
-    ssize_t n;
+    ssize_t n = 0;
     while (!_pkt_list.empty()) {
         auto &front = _pkt_list.front();
         auto &buffer = front.first;
-        if (_is_udp) {
+        switch (_type)
+        {
+        case SockNum::Sock_UDP: 
+        {
             auto ptr = getBufferSockPtr(front);
             n = ::sendto(fd, buffer->data() + _offset, buffer->size() - _offset, flags, ptr ? ptr->sockaddr() : nullptr, ptr ? ptr->socklen() : 0);
-        } else {
+            break;
+        }
+        case SockNum::Sock_TCP:
             n = ::send(fd, buffer->data() + _offset, buffer->size() - _offset, flags);
+            break;
+        case SockNum::Sock_SRT:
+#ifdef HAS_SRT
+            n = srt_send(fd, buffer->data() + _offset, buffer->size() - _offset);
+#endif // HAS_SRT
+
+        default:
+            break;
         }
 
         if (n >= 0) {
@@ -422,10 +435,13 @@ BufferSendMMsg::BufferSendMMsg(List<std::pair<Buffer::Ptr, bool>> list, SendResu
 
 #endif //defined(__linux__) || defined(__linux)
 
-BufferList::Ptr BufferList::create(List<std::pair<Buffer::Ptr, bool> > list, SendResult cb, bool is_udp) {
+BufferList::Ptr BufferList::create(List<std::pair<Buffer::Ptr, bool> > list, SendResult cb, int type) {
+    bool is_udp = type == SockNum::Sock_UDP;
+    if(type == SockNum::Sock_SRT)
+        return std::make_shared<BufferSendTo>(std::move(list), std::move(cb), type);
 #if defined(_WIN32)
     //win32目前未做网络发送性能优化
-    return std::make_shared<BufferSendTo>(std::move(list), std::move(cb), is_udp);
+    return std::make_shared<BufferSendTo>(std::move(list), std::move(cb), type);
 #elif defined(__linux__) || defined(__linux)
     if (is_udp) {
         return std::make_shared<BufferSendMMsg>(std::move(list), std::move(cb));
@@ -433,7 +449,7 @@ BufferList::Ptr BufferList::create(List<std::pair<Buffer::Ptr, bool> > list, Sen
     return std::make_shared<BufferSendMsg>(std::move(list), std::move(cb));
 #else
     if (is_udp) {
-        return std::make_shared<BufferSendTo>(std::move(list), std::move(cb), is_udp);
+        return std::make_shared<BufferSendTo>(std::move(list), std::move(cb), type);
     }
     return std::make_shared<BufferSendMsg>(std::move(list), std::move(cb));
 #endif

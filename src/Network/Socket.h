@@ -22,7 +22,9 @@
 #include "Poller/Timer.h"
 #include "Poller/EventPoller.h"
 #include "BufferSock.h"
-
+#ifdef HAS_SRT
+#include "srt/srt.h"
+#endif
 namespace toolkit {
 
 #if defined(MSG_NOSIGNAL)
@@ -112,7 +114,8 @@ public:
     typedef enum {
         Sock_Invalid = -1,
         Sock_TCP = 0,
-        Sock_UDP = 1
+        Sock_UDP = 1,
+        Sock_SRT = 2
     } SockType;
 
     SockNum(int fd, SockType type) {
@@ -121,6 +124,12 @@ public:
     }
 
     ~SockNum() {
+        if (_type == Sock_SRT) {
+#ifdef HAS_SRT
+            srt_close(_fd);
+#endif
+            return;
+        }
 #if defined (OS_IPHONE)
         unsetSocketOfIOS(_fd);
 #endif //OS_IPHONE
@@ -187,7 +196,25 @@ public:
 
     ~SockFD() {
         auto num = _num;
-        _poller->delEvent(_num->rawFd(), [num](bool) {});
+        delEvent([num](bool) {});
+    }
+    void delEvent(EventPoller::PollEventCB cb = nullptr) {
+        if (_num->type() == SockNum::Sock_SRT)
+            _poller->delSrtEvent(_num->rawFd(), std::move(cb));
+        else
+            _poller->delEvent(_num->rawFd(), std::move(cb));
+    }
+    int addEvent(int event, EventPoller::PollEventCB cb) const {
+        if (_num->type() == SockNum::Sock_SRT)
+            return _poller->addSrtEvent(_num->rawFd(), event, std::move(cb));
+        else
+            return _poller->addEvent(_num->rawFd(), event, std::move(cb));
+    }
+    int modifyEvent(int event) const {
+        if (_num->type() == SockNum::Sock_SRT)
+            return _poller->modifySrtEvent(_num->rawFd(), event);
+        else
+            return _poller->modifyEvent(_num->rawFd(), event);
     }
 
     void setConnected() {
@@ -292,7 +319,7 @@ public:
      * @param local_port 绑定本地网卡端口号
      */
     virtual void connect(const std::string &url, uint16_t port, onErrCB con_cb, float timeout_sec = 5,
-                         const std::string &local_ip = "::", uint16_t local_port = 0);
+                         const std::string &local_ip = "::", uint16_t local_port = 0, bool srt = false);
 
     /**
      * 创建tcp监听服务器
@@ -301,7 +328,7 @@ public:
      * @param backlog tcp最大积压数
      * @return 是否成功
      */
-    virtual bool listen(uint16_t port, const std::string &local_ip = "::", int backlog = 1024);
+    virtual bool listen(uint16_t port, const std::string &local_ip = "::", int backlog = 1024, bool srt = false);
 
     /**
      * 创建udp套接字,udp是无连接的，所以可以作为服务器和客户端
@@ -461,7 +488,7 @@ public:
     std::string getIdentifier() const override;
 
 private:
-    SockFD::Ptr setPeerSock(int fd);
+    SockFD::Ptr setPeerSock(int fd, SockNum::SockType type);
     SockFD::Ptr makeSock(int sock, SockNum::SockType type);
     int onAccept(const SockFD::Ptr &sock, int event) noexcept;
     ssize_t onRead(const SockFD::Ptr &sock, bool is_udp = false) noexcept;

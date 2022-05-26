@@ -131,7 +131,7 @@ void Socket::setOnSendResult(onSendResult cb) {
 
 #define CLOSE_SOCK(fd) if(fd != -1) {close(fd);}
 
-void Socket::connect(const string &url, uint16_t port, onErrCB con_cb_in, float timeout_sec, const string &local_ip, uint16_t local_port) {
+void Socket::connect(const string &url, uint16_t port, onErrCB con_cb_in, float timeout_sec, const string &local_ip, uint16_t local_port, bool srt) {
     //重置当前socket
     closeSock();
 
@@ -150,7 +150,7 @@ void Socket::connect(const string &url, uint16_t port, onErrCB con_cb_in, float 
         con_cb_in(err);
     };
 
-    auto async_con_cb = std::make_shared<function<void(int)> >([weak_self, con_cb](int sock) {
+    auto async_con_cb = std::make_shared<function<void(int)> >([weak_self, con_cb, srt](int sock) {
         auto strong_self = weak_self.lock();
         if (sock == -1 || !strong_self) {
             if (!strong_self) {
@@ -161,11 +161,11 @@ void Socket::connect(const string &url, uint16_t port, onErrCB con_cb_in, float 
             return;
         }
 
-        auto sock_fd = strong_self->makeSock(sock, SockNum::Sock_TCP);
+        auto sock_fd = strong_self->makeSock(sock, srt ? SockNum::Sock_SRT : SockNum::Sock_TCP);
         weak_ptr<SockFD> weak_sock_fd = sock_fd;
 
         //监听该socket是否可写，可写表明已经连接服务器成功
-        int result = strong_self->_poller->addEvent(sock, EventPoller::Event_Write, [weak_self, weak_sock_fd, con_cb](int event) {
+        int result = sock_fd->addEvent(EventPoller::Event_Write, [weak_self, weak_sock_fd, con_cb](int event) {
             auto strong_sock_fd = weak_sock_fd.lock();
             auto strong_self = weak_self.lock();
             if (strong_sock_fd && strong_self) {
@@ -185,13 +185,22 @@ void Socket::connect(const string &url, uint16_t port, onErrCB con_cb_in, float 
     });
 
     if (isIP(url.data())) {
-        (*async_con_cb)(SockUtil::connect(url.data(), port, true, local_ip.data(), local_port));
+        int sock = 0;
+        if (srt)
+            sock = SockUtil::connect_srt(url.data(), port, true, local_ip.data(), local_port);
+        else
+            sock = SockUtil::connect(url.data(), port, true, local_ip.data(), local_port);
+        (*async_con_cb)(sock);
     } else {
         auto poller = _poller;
         weak_ptr<function<void(int)>> weak_task = async_con_cb;
-        WorkThreadPool::Instance().getExecutor()->async([url, port, local_ip, local_port, weak_task, poller]() {
+        WorkThreadPool::Instance().getExecutor()->async([url, port, local_ip, local_port, srt, weak_task, poller]() {
             //阻塞式dns解析放在后台线程执行
-            int sock = SockUtil::connect(url.data(), port, true, local_ip.data(), local_port);
+            int sock = 0;
+            if (srt)
+                sock = SockUtil::connect_srt(url.data(), port, true, local_ip.data(), local_port);
+            else
+                sock = SockUtil::connect(url.data(), port, true, local_ip.data(), local_port);
             poller->async([sock, weak_task]() {
                 auto strong_task = weak_task.lock();
                 if (strong_task) {
@@ -220,7 +229,8 @@ void Socket::onConnected(const SockFD::Ptr &sock, const onErrCB &cb) {
     }
 
     //先删除之前的可写事件监听
-    _poller->delEvent(sock->rawFd());
+    //_poller->delEvent(sock->rawFd());
+    sock->delEvent();
     if (!attachEvent(sock, false)) {
         //连接失败
         cb(SockException(Err_other, "add event to poller failed when connected"));
@@ -237,7 +247,7 @@ bool Socket::attachEvent(const SockFD::Ptr &sock, bool is_udp) {
     weak_ptr<SockFD> weak_sock = sock;
     _enable_recv = true;
     _read_buffer = _poller->getSharedBuffer();
-    int result = _poller->addEvent(sock->rawFd(), EventPoller::Event_Read | EventPoller::Event_Error | EventPoller::Event_Write, [weak_self,weak_sock,is_udp](int event) {
+    int result = sock->addEvent(EventPoller::Event_Read | EventPoller::Event_Error | EventPoller::Event_Write, [weak_self,weak_sock,is_udp](int event) {
         auto strong_self = weak_self.lock();
         auto strong_sock = weak_sock.lock();
         if (!strong_self || !strong_sock) {
@@ -270,9 +280,17 @@ ssize_t Socket::onRead(const SockFD::Ptr &sock, bool is_udp) noexcept{
     socklen_t len = sizeof(addr);
 
     while (_enable_recv) {
-        do {
-            nread = recvfrom(sock_fd, data, capacity, 0, (struct sockaddr *)&addr, &len);
-        } while (-1 == nread && UV_EINTR == get_uv_error(true));
+        if (sock->type() == SockNum::Sock_SRT) {
+#ifdef HAS_SRT
+            nread = srt_recv(sock_fd, data, capacity);
+            srt_getpeername(sock_fd, (struct sockaddr*)&addr, &len);
+#endif // HAS_SRT
+        }
+        else {
+            do {
+                nread = recvfrom(sock_fd, data, capacity, 0, (struct sockaddr*)&addr, &len);
+            } while (-1 == nread && UV_EINTR == get_uv_error(true));
+        }
 
         if (nread == 0) {
             if (!is_udp) {
@@ -440,7 +458,7 @@ bool Socket::listen(const SockFD::Ptr &sock){
     weak_ptr<SockFD> weak_sock = sock;
     weak_ptr<Socket> weak_self = shared_from_this();
     _enable_recv = true;
-    int result = _poller->addEvent(sock->rawFd(), EventPoller::Event_Read | EventPoller::Event_Error, [weak_self, weak_sock](int event) {
+    int result = sock->addEvent(EventPoller::Event_Read | EventPoller::Event_Error, [weak_self, weak_sock](int event) {
         auto strong_self = weak_self.lock();
         auto strong_sock = weak_sock.lock();
         if (!strong_self || !strong_sock) {
@@ -458,12 +476,22 @@ bool Socket::listen(const SockFD::Ptr &sock){
     return true;
 }
 
-bool Socket::listen(uint16_t port, const string &local_ip, int backlog) {
-    int sock = SockUtil::listen(port, local_ip.data(), backlog);
+bool Socket::listen(uint16_t port, const string &local_ip, int backlog, bool srt) {
+    int sock = -1;
+    SockNum::SockType type;
+    if (srt) {
+        sock = SockUtil::listen_srt(port, local_ip.data(), backlog);
+        type = SockNum::Sock_SRT;
+    }
+    else {
+        sock = SockUtil::listen(port, local_ip.data(), backlog);
+        type = SockNum::Sock_TCP;
+    }
+    
     if (sock == -1) {
         return false;
     }
-    return listen(makeSock(sock, SockNum::Sock_TCP));
+    return listen(makeSock(sock, type));
 }
 
 bool Socket::bindUdpSock(uint16_t port, const string &local_ip, bool enable_reuse) {
@@ -487,29 +515,39 @@ int Socket::onAccept(const SockFD::Ptr &sock, int event) noexcept {
         if (event & EventPoller::Event_Read) {
             struct sockaddr_storage addr;
             socklen_t len = sizeof(addr);
-            do {
-                fd = (int)accept(sock->rawFd(), (struct sockaddr*)&addr, &len);
-            } while (-1 == fd && UV_EINTR == get_uv_error(true));
-
-            if (fd == -1) {
-                int err = get_uv_error(true);
-                if (err == UV_EAGAIN) {
-                    //没有新连接
-                    return 0;
+            if (sock->type() == SockNum::Sock_SRT) {
+#ifdef HAS_SRT
+                fd = srt_accept(sock->rawFd(), (struct sockaddr*)&addr, &len);
+                if (fd == -1) {
+                    int error = srt_getlasterror(nullptr);
+                    auto ex = SockException(Err_other, srt_getlasterror_str(), error);
+                    emitErr(ex);
+                    ErrorL << "srt服务器监听异常:" << ex.what();
+                    return -1;
                 }
-                auto ex = toSockException(err);
-                emitErr(ex);
-                ErrorL << "tcp服务器监听异常:" << ex.what();
+                SockUtil::set_srtopt(fd);
+#else
                 return -1;
+#endif // HAS_SRT
             }
-
-            SockUtil::setNoSigpipe(fd);
-            SockUtil::setNoBlocked(fd);
-            SockUtil::setNoDelay(fd);
-            SockUtil::setSendBuf(fd);
-            SockUtil::setRecvBuf(fd);
-            SockUtil::setCloseWait(fd);
-            SockUtil::setCloExec(fd);
+            else {
+                do {
+                    fd = (int)accept(sock->rawFd(), (struct sockaddr*)&addr, &len);
+                } while (-1 == fd && UV_EINTR == get_uv_error(true));
+                if (fd == -1) {
+                    int err = get_uv_error(true);
+                    if (err == UV_EAGAIN) {
+                        //没有新连接
+                        return 0;
+                    }
+                    auto ex = toSockException(err);
+                    emitErr(ex);
+                    ErrorL << "tcp服务器监听异常:" << ex.what();
+                    return -1;
+                }
+                SockUtil::setNoDelay(fd);
+                SockUtil::set_sockopt(fd);
+            }
 
             Socket::Ptr peer_sock;
             try {
@@ -529,7 +567,7 @@ int Socket::onAccept(const SockFD::Ptr &sock, int event) noexcept {
             }
 
             //设置好fd,以备在onAccept事件中可以正常访问该fd
-            auto peer_sock_fd = peer_sock->setPeerSock(fd);
+            auto peer_sock_fd = peer_sock->setPeerSock(fd, sock->type());
 
             shared_ptr<void> completed(nullptr, [peer_sock, peer_sock_fd](void *) {
                 try {
@@ -563,9 +601,9 @@ int Socket::onAccept(const SockFD::Ptr &sock, int event) noexcept {
     }
 }
 
-SockFD::Ptr Socket::setPeerSock(int fd) {
+SockFD::Ptr Socket::setPeerSock(int fd, SockNum::SockType type) {
     closeSock();
-    auto sock = makeSock(fd, SockNum::Sock_TCP);
+    auto sock = makeSock(fd, type);
     LOCK_GUARD(_mtx_sock_fd);
     _sock_fd = sock;
     return sock;
@@ -627,7 +665,7 @@ bool Socket::flushData(const SockFD::Ptr &sock, bool poller_thread) {
                 if (!_send_buf_waiting.empty()) {
                     //把一级缓中数数据放置到二级缓存中并清空
                     LOCK_GUARD(_mtx_event);
-                    send_buf_sending_tmp.emplace_back(BufferList::create(std::move(_send_buf_waiting), _send_result, sock->type() == SockNum::Sock_UDP));
+                    send_buf_sending_tmp.emplace_back(BufferList::create(std::move(_send_buf_waiting), _send_result, sock->type()));
                     break;
                 }
             }
@@ -717,14 +755,14 @@ void Socket::startWriteAbleEvent(const SockFD::Ptr &sock) {
     //开始监听socket可写事件
     _sendable = false;
     int flag = _enable_recv ? EventPoller::Event_Read : 0;
-    _poller->modifyEvent(sock->rawFd(), flag | EventPoller::Event_Error | EventPoller::Event_Write);
+    _sock_fd->modifyEvent(flag | EventPoller::Event_Error | EventPoller::Event_Write);
 }
 
 void Socket::stopWriteAbleEvent(const SockFD::Ptr &sock) {
     //停止监听socket可写事件
     _sendable = true;
     int flag = _enable_recv ? EventPoller::Event_Read : 0;
-    _poller->modifyEvent(sock->rawFd(), flag | EventPoller::Event_Error);
+    _sock_fd->modifyEvent(flag | EventPoller::Event_Error);
 }
 
 void Socket::enableRecv(bool enabled) {
@@ -735,7 +773,7 @@ void Socket::enableRecv(bool enabled) {
     int read_flag = _enable_recv ? EventPoller::Event_Read : 0;
     //可写时，不监听可写事件
     int send_flag = _sendable ? 0 : EventPoller::Event_Write;
-    _poller->modifyEvent(rawFD(), read_flag | send_flag | EventPoller::Event_Error);
+    _sock_fd->modifyEvent(read_flag | send_flag | EventPoller::Event_Error);
 }
 
 SockFD::Ptr Socket::makeSock(int sock, SockNum::SockType type) {

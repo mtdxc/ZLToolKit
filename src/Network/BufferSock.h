@@ -62,7 +62,7 @@ public:
     virtual size_t count() = 0;
     virtual ssize_t send(int fd, int flags) = 0;
 
-    static Ptr create(List<std::pair<Buffer::Ptr, bool> > list, SendResult cb, bool is_udp);
+    static Ptr create(List<std::pair<Buffer::Ptr, bool> > list, SendResult cb, int type);
 
 private:
     //对象个数统计

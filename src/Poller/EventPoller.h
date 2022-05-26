@@ -23,7 +23,6 @@
 #include "Thread/TaskExecutor.h"
 #include "Thread/ThreadPool.h"
 #include "Network/Buffer.h"
-
 #if defined(__linux__) || defined(__linux)
 #define HAS_EPOLL
 #endif //__linux__
@@ -125,7 +124,13 @@ public:
      */
     const std::thread::id &getThreadId() const;
 
+    int addSrtEvent(int fd, int event, PollEventCB cb);
+    int delSrtEvent(int fd, PollDelCB cb = nullptr);
+    int modifySrtEvent(int fd, int event);
 private:
+#ifdef HAS_SRT
+    unordered_map<int, std::shared_ptr<PollEventCB> > _srt_event_map;
+#endif
     /**
      * 本对象只允许在EventPollerPool中构造
      */
@@ -201,8 +206,7 @@ private:
 
     //保持日志可用
     Logger::Ptr _logger;
-
-#if defined(HAS_EPOLL)
+#if defined(HAS_EPOLL) || defined(HAS_SRT)
     //epoll相关
     int _epoll_fd = -1;
     unordered_map<int, std::shared_ptr<PollEventCB> > _event_map;

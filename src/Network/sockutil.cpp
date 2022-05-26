@@ -19,6 +19,8 @@
 #include "Util/logger.h"
 #include "Util/uv_errno.h"
 #include "Util/onceToken.h"
+// for srt.h
+#include "Network/Socket.h"
 #if defined (__APPLE__)
 #include <ifaddrs.h>
 #endif
@@ -374,13 +376,8 @@ int SockUtil::connect(const char *host, uint16_t port, bool async, const char *l
     }
 
     setReuseable(sockfd);
-    setNoSigpipe(sockfd);
-    setNoBlocked(sockfd, async);
     setNoDelay(sockfd);
-    setSendBuf(sockfd);
-    setRecvBuf(sockfd);
-    setCloseWait(sockfd);
-    setCloExec(sockfd);
+    set_sockopt(sockfd, async);
 
     if (bind_sock(sockfd, local_ip, local_port, addr.ss_family) == -1) {
         close(sockfd);
@@ -399,6 +396,128 @@ int SockUtil::connect(const char *host, uint16_t port, bool async, const char *l
     close(sockfd);
     return -1;
 }
+
+int SockUtil::set_sockopt(int fd, bool async)
+{
+    setNoSigpipe(fd);
+    setNoBlocked(fd, async);
+    setSendBuf(fd);
+    setRecvBuf(fd);
+    setCloseWait(fd);
+    setCloExec(fd);
+    return 0;
+}
+
+int SockUtil::set_srtopt(int sockfd, bool async) {
+#ifdef HAS_SRT
+    bool val = true;
+    // setReuseable(sockfd);
+    srt_setsockopt(sockfd, 0, SRTO_REUSEADDR, &val, sizeof val);
+    val = !async;
+    // setNoBlocked(sockfd, async);
+    srt_setsockopt(sockfd, 0, SRTO_RCVSYN, &val, sizeof val);
+    srt_setsockopt(sockfd, 0, SRTO_SNDSYN, &val, sizeof val);
+
+    // setSendBuf(sockfd);
+    // setRecvBuf(sockfd);
+    int iVal = SOCKET_DEFAULT_BUF_SIZE;
+    srt_setsockopt(sockfd, 0, SRTO_RCVBUF, &iVal, sizeof(iVal));
+    srt_setsockopt(sockfd, 0, SRTO_SNDBUF, &iVal, sizeof(iVal));
+    /*
+    setNoSigpipe(sockfd);
+    setNoDelay(sockfd);
+    setCloseWait(sockfd);
+    setCloExec(sockfd);
+    */
+#endif
+    return 0;
+}
+
+#ifdef HAS_SRT
+static int bind_srt(int fd, const char *ifr_ip, uint16_t port, int family) {
+    sockaddr_storage addr = SockUtil::make_sockaddr(ifr_ip, port);
+    if (addr.ss_family != family) {
+        bzero(&addr, sizeof(addr));
+        addr.ss_family = family;
+        WarnL << "family dismatch, reset localaddr " << ifr_ip << " to any addr";
+        switch (family) {
+        case AF_INET:
+            if (auto ipv4 = (struct sockaddr_in*)&addr)
+                ipv4->sin_addr.s_addr = INADDR_ANY;
+            break;
+        case AF_INET6:
+            if (auto ipv6 = (struct sockaddr_in6*)&addr)
+                ipv6->sin6_addr = IN6ADDR_ANY_INIT;
+            break;
+        default: assert(0); break;
+        }
+    }
+    //if (family == AF_INET6) set_ipv6_only(fd, false);
+    if (srt_bind(fd, (struct sockaddr *) &addr, get_addr_len(family)) == -1) {
+        WarnL << "绑定套接字失败:" << get_uv_errmsg(true);
+        return -1;
+    }
+    return 0;
+}
+#endif
+
+int SockUtil::connect_srt(const char *host, uint16_t port, bool async /*= true*/, const char *local_ip /*= "::"*/, uint16_t local_port /*= 0*/)
+{
+#ifdef HAS_SRT
+    sockaddr_storage addr;
+    //优先使用ipv4地址
+    if (!getDomainIP(host, port, addr, AF_INET, SOCK_STREAM, IPPROTO_TCP)) {
+        //dns解析失败
+        return -1;
+    }
+    int sockfd = srt_create_socket();
+    set_srtopt(sockfd);
+
+    if (bind_srt(sockfd, local_ip, local_port, addr.ss_family) == -1) {
+        srt_close(sockfd);
+        return -1;
+    }
+
+    if (srt_connect(sockfd, (sockaddr *)&addr, get_addr_len(addr.ss_family)) == 0) {
+        //同步连接成功
+        return sockfd;
+    }
+    if (async && get_uv_error(true) == UV_EAGAIN) {
+        //异步连接成功
+        return sockfd;
+    }
+    WarnL << "连接主机失败:" << host << " " << port << " " << get_uv_errmsg(true);
+    srt_close(sockfd);
+#endif
+    return -1;
+}
+
+int SockUtil::listen_srt(const uint16_t port, const char *local_ip /*= "::"*/, int back_log /*= 1024*/)
+{
+#ifdef HAS_SRT
+    int family = is_ipv4(local_ip) ? AF_INET : AF_INET6;
+    int fd = srt_create_socket();
+    // setReuseable(fd, true, false);
+    bool val = true;
+    srt_setsockopt(fd, 0, SRTO_REUSEADDR, &val, sizeof val);
+    // setNoBlocked(fd);
+    val = false;
+    srt_setsockopt(fd, 0, SRTO_RCVSYN, &val, sizeof val);
+    srt_setsockopt(fd, 0, SRTO_SNDSYN, &val, sizeof val);
+    if (bind_srt(fd, local_ip, port, family) == -1) {
+        srt_close(fd);
+        return -1;
+    }
+    //开始监听
+    if (srt_listen(fd, back_log) != -1) {
+        return fd;
+    }
+    WarnL << "开始监听失败:" << get_uv_errmsg(true);
+    srt_close(fd);
+#endif // HAS_SRT
+    return -1;
+}
+
 
 int SockUtil::listen(const uint16_t port, const char *local_ip, int back_log) {
     int fd = -1;
@@ -653,12 +772,7 @@ int SockUtil::bindUdpSock(const uint16_t port, const char *local_ip, bool enable
     if (enable_reuse) {
         setReuseable(fd);
     }
-    setNoSigpipe(fd);
-    setNoBlocked(fd);
-    setSendBuf(fd);
-    setRecvBuf(fd);
-    setCloseWait(fd);
-    setCloExec(fd);
+    set_sockopt(fd);
 
     if (bind_sock(fd, local_ip, port, family) == -1) {
         close(fd);

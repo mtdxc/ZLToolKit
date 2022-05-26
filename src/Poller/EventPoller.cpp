@@ -11,11 +11,19 @@
 #include "SelectWrap.h"
 #include "EventPoller.h"
 #include "Util/util.h"
+#include "Util/onceToken.h"
 #include "Util/uv_errno.h"
 #include "Util/TimeTicker.h"
 #include "Network/sockutil.h"
 
-#if defined(HAS_EPOLL)
+#if defined(HAS_SRT)
+#include "srt/srt.h"
+#include "srt/udt.h"
+#define toEpoll(event)    (((event) & Event_Read) ? SRT_EPOLL_IN : 0) \
+                                | (((event) & Event_Write) ? SRT_EPOLL_OUT : 0) \
+                                | (((event) & Event_Error) ? SRT_EPOLL_ERR : 0) \
+                                | (((event) & Event_LT) ?  0 : SRT_EPOLL_ET)
+#elif defined(HAS_EPOLL)
 #include <sys/epoll.h>
 
 #if !defined(EPOLLEXCLUSIVE)
@@ -46,7 +54,17 @@ EventPoller::EventPoller(ThreadPool::Priority priority) {
     SockUtil::setNoBlocked(_pipe.readFD());
     SockUtil::setNoBlocked(_pipe.writeFD());
 
-#if defined(HAS_EPOLL)
+#if defined(HAS_SRT)
+    static onceToken token([]{
+        srt_startup();
+    }, [](){
+        srt_cleanup();
+    });
+    _epoll_fd = srt_epoll_create();
+    if (_epoll_fd == -1) {
+        throw runtime_error(StrPrinter << "创建srt_epoll文件描述符失败:" << srt_getlasterror_str());
+    }
+#elif defined(HAS_EPOLL)
     _epoll_fd = epoll_create(EPOLL_SIZE);
     if (_epoll_fd == -1) {
         throw runtime_error(StrPrinter << "创建epoll文件描述符失败:" << get_uv_errmsg());
@@ -78,7 +96,12 @@ void EventPoller::shutdown() {
 EventPoller::~EventPoller() {
     shutdown();
     wait();
-#if defined(HAS_EPOLL)
+#if defined(HAS_SRT)
+    if (_epoll_fd != -1) {
+        srt_epoll_release(_epoll_fd);
+        _epoll_fd = -1;
+    }
+#elif defined(HAS_EPOLL)
     if (_epoll_fd != -1) {
         close(_epoll_fd);
         _epoll_fd = -1;
@@ -98,8 +121,16 @@ int EventPoller::addEvent(int fd, int event, PollEventCB cb) {
     }
 
     if (isCurrentThread()) {
-#if defined(HAS_EPOLL)
-        struct epoll_event ev = {0};
+
+#if defined(HAS_SRT)
+        int events = toEpoll(event);
+        int ret = srt_epoll_add_ssock(_epoll_fd, fd, &events);
+        if (ret == 0) {
+            _event_map.emplace(fd, std::make_shared<PollEventCB>(std::move(cb)));
+        }
+        return ret;
+#elif defined(HAS_EPOLL)
+        struct epoll_event ev = { 0 };
         ev.events = (toEpoll(event)) | EPOLLEXCLUSIVE;
         ev.data.fd = fd;
         int ret = epoll_ctl(_epoll_fd, EPOLL_CTL_ADD, fd, &ev);
@@ -136,7 +167,11 @@ int EventPoller::delEvent(int fd, PollDelCB cb) {
     }
 
     if (isCurrentThread()) {
-#if defined(HAS_EPOLL)
+#ifdef HAS_SRT
+        bool success = srt_epoll_remove_ssock(_epoll_fd, fd) == 0 && _event_map.erase(fd) > 0;
+        cb(success);
+        return success ? 0 : -1;
+#elif defined(HAS_EPOLL)
         bool success = epoll_ctl(_epoll_fd, EPOLL_CTL_DEL, fd, nullptr) == 0 && _event_map.erase(fd) > 0;
         cb(success);
         return success ? 0 : -1;
@@ -155,8 +190,11 @@ int EventPoller::delEvent(int fd, PollDelCB cb) {
 }
 
 int EventPoller::modifyEvent(int fd, int event) {
-    TimeTicker();
-#if defined(HAS_EPOLL)
+    // TimeTicker();
+#if defined(HAS_SRT)
+    int events = toEpoll(event);
+    return srt_epoll_update_ssock(_epoll_fd, fd, &events);
+#elif defined(HAS_EPOLL)
     struct epoll_event ev = {0};
     ev.events = toEpoll(event);
     ev.data.fd = fd;
@@ -175,6 +213,64 @@ int EventPoller::modifyEvent(int fd, int event) {
     return 0;
 #endif //HAS_EPOLL
 }
+
+int EventPoller::addSrtEvent(int fd, int event, PollEventCB cb)
+{
+#if defined(HAS_SRT)
+    TimeTicker();
+    if (!cb) {
+        WarnL << "PollEventCB 为空!";
+        return -1;
+    }
+
+    if (isCurrentThread()) {
+        int events = toEpoll(event);
+        int ret = srt_epoll_add_usock(_epoll_fd, fd, &events);
+        if (ret == 0) {
+            _srt_event_map.emplace(fd, std::make_shared<PollEventCB>(std::move(cb)));
+        }
+        return ret;
+    }
+
+    async([this, fd, event, cb]() {
+        addSrtEvent(fd, event, std::move(const_cast<PollEventCB &>(cb)));
+    });
+#endif
+    return 0;
+}
+
+int EventPoller::delSrtEvent(int fd, PollDelCB cb /*= nullptr*/)
+{
+#if defined(HAS_SRT)
+    TimeTicker();
+    if (!cb) {
+        cb = [](bool success) {};
+    }
+
+    if (isCurrentThread()) {
+        bool success = srt_epoll_remove_usock(_epoll_fd, fd) == 0 && _srt_event_map.erase(fd) > 0;
+        cb(success);
+        return success ? 0 : -1;
+    }
+
+    //跨线程操作
+    async([this, fd, cb]() {
+        delSrtEvent(fd, std::move(const_cast<PollDelCB &>(cb)));
+    });
+#endif
+    return 0;
+}
+
+int EventPoller::modifySrtEvent(int fd, int event)
+{
+#if defined(HAS_SRT)
+    TimeTicker();
+    int events = toEpoll(event);
+    return srt_epoll_update_usock(_epoll_fd, fd, &events);
+#endif
+    return 0;
+}
+
 
 Task::Ptr EventPoller::async(TaskIn task, bool may_sync) {
     return async_l(std::move(task), may_sync, false);
@@ -273,7 +369,65 @@ void EventPoller::runLoop(bool blocked, bool ref_self) {
         _sem_run_started.post();
         _exit_flag = false;
         uint64_t minDelay;
-#if defined(HAS_EPOLL)
+#if defined(HAS_SRT)
+        while (!_exit_flag) {
+            std::set<SRTSOCKET> srtRead, srtWrite;
+            std::set<SYSSOCKET> sysRead, sysWrite;
+            minDelay = getMinDelay();
+            int ret = UDT::epoll_wait(_epoll_fd,
+                &srtRead, &srtWrite,
+                minDelay,
+                &sysRead, &sysWrite);
+            if (ret <= 0)
+                continue;
+            // collect event
+            std::map<int, int> srtEvent, sysEvent;
+            for(auto sock : srtRead){
+                srtEvent[sock] |= Event_Read;
+            }
+            for(auto sock : srtWrite){
+                srtEvent[sock] |= Event_Write;
+            }
+            for(auto sock : sysRead){
+                sysEvent[sock] |= Event_Read;
+            }
+            for(auto sock : sysWrite){
+                sysEvent[sock] |= Event_Write;
+            }
+
+            // fire event
+            for (auto sysIt: sysEvent)
+            {
+                auto it = _event_map.find(sysIt.first);
+                if (it == _event_map.end()) {
+                    srt_epoll_remove_ssock(_epoll_fd, sysIt.first);
+                    continue;
+                }
+                auto cb = it->second;
+                try {
+                    (*cb)(sysIt.second);
+                }
+                catch (std::exception &ex) {
+                    ErrorL << "EventPoller执行事件回调捕获到异常:" << ex.what();
+                }
+            }
+            for (auto srtIt : srtEvent)
+            {
+                auto it = _srt_event_map.find(srtIt.first);
+                if (it == _srt_event_map.end()) {
+                    srt_epoll_remove_usock(_epoll_fd, srtIt.first);
+                    continue;
+                }
+                auto cb = it->second;
+                try {
+                    (*cb)(srtIt.second);
+                }
+                catch (std::exception &ex) {
+                    ErrorL << "EventPoller执行SRT事件回调捕获到异常:" << ex.what();
+                }
+            }
+        }
+#elif defined(HAS_EPOLL)
         struct epoll_event events[EPOLL_SIZE];
         while (!_exit_flag) {
             minDelay = getMinDelay();
