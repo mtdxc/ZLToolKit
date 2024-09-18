@@ -60,8 +60,8 @@ public:
     /**
      * 重置计时器
      */
-    void resetTime() {
-        _begin = getCurrentMillisecond();
+    void resetTime(int msDelta = 0) {
+        _begin = getCurrentMillisecond() + msDelta;
     }
 
 private:
