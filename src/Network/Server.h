@@ -84,7 +84,14 @@ public:
     explicit Server(EventPoller::Ptr poller = nullptr);
     virtual ~Server() = default;
 
+    void setName(const char *name) { if(name) _name = name; }
+    const std::string& getName() const { return _name; }
+    static const std::map<std::string, uint16_t> &getPorts() { return _ports; }
 protected:
+    void addPort(uint16_t port) { if(_name.length()) _ports[_name] = port; }
+    static std::map<std::string, uint16_t> _ports;
+    std::string _name;
+
     EventPoller::Ptr _poller;
 };
 
