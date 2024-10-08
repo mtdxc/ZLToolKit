@@ -387,6 +387,17 @@ void UdpServer::setOnCreateSocket(onCreateSocket cb) {
     }
 }
 
+Socket::Ptr UdpServer::socket(bool thread) {
+    Socket::Ptr ret = _socket;
+    if (thread && _multi_poller) {
+        auto it = _cloned_server.find(EventPoller::getCurrentPoller().get());
+        if (it != _cloned_server.end()) {
+            ret = it->second->_socket;
+        }
+    }
+    return ret;
+}
+
 uint16_t UdpServer::getPort() {
     if (!_socket) {
         return 0;

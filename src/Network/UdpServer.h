@@ -69,6 +69,7 @@ public:
      * [AUTO-TRANSLATED:4cf98e86]
      */
     void setOnCreateSocket(onCreateSocket cb);
+    Socket::Ptr socket(bool thread=true);
 
 protected:
     virtual Ptr onCreatServer(const EventPoller::Ptr &poller);
