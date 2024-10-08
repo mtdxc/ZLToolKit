@@ -112,7 +112,7 @@ void UdpServer::start_l(uint16_t port, const std::string &host) {
     if (!_socket->bindUdpSock(port, host.c_str())) {
         // udp 绑定端口失败, 可能是由于端口占用或权限问题  [AUTO-TRANSLATED:c31eedba]
         //Failed to bind udp port, possibly due to port occupation or permission issues
-        std::string err = (StrPrinter << "Bind udp socket on " << host << " " << port << " failed: " << get_uv_errmsg(true));
+        std::string err = (StrPrinter << _name << " Bind udp socket on " << host << " " << port << " failed: " << get_uv_errmsg(true));
         throw std::runtime_error(err);
     }
 
@@ -127,7 +127,8 @@ void UdpServer::start_l(uint16_t port, const std::string &host) {
         pr.second->_socket->bindUdpSock(_socket->get_local_port(), _socket->get_local_ip());
 #endif
     }
-    InfoL << "UDP server bind to [" << host << "]: " << port;
+    InfoL << "UDP server " << _name << " bind to [" << host << "]: " << port;
+    addPort(port);
 }
 
 UdpServer::Ptr UdpServer::onCreatServer(const EventPoller::Ptr &poller) {

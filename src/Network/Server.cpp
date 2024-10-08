@@ -13,7 +13,7 @@
 using namespace std;
 
 namespace toolkit {
-
+std::map<std::string, uint16_t> Server::_ports;
 Server::Server(EventPoller::Ptr poller) {
     _poller = poller ? std::move(poller) : EventPollerPool::Instance().getPoller();
 }
