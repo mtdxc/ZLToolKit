@@ -230,7 +230,7 @@ void TcpServer::start_l(uint16_t port, const std::string &host, uint32_t backlog
     if (!_socket->listen(port, host.c_str(), backlog)) {
         // 创建tcp监听失败，可能是由于端口占用或权限问题  [AUTO-TRANSLATED:88ebdefc]
         //TCP listener creation failed, possibly due to port occupation or permission issues
-        string err = (StrPrinter << "Listen on " << host << " " << port << " failed: " << get_uv_errmsg(true));
+        string err = (StrPrinter << _name <<" Listen on " << host << " " << port << " failed: " << get_uv_errmsg(true));
         throw std::runtime_error(err);
     }
     for (auto &pr: _cloned_server) {
@@ -239,7 +239,8 @@ void TcpServer::start_l(uint16_t port, const std::string &host, uint32_t backlog
         pr.second->_socket->cloneSocket(*_socket);
     }
 
-    InfoL << "TCP server listening on [" << host << "]: " << port;
+    InfoL << "TCP server " << _name << " listening on [" << host << "]: " << port;
+    addPort(port);
 }
 
 void TcpServer::onManagerSession() {
