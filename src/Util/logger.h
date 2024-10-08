@@ -437,7 +437,7 @@ private:
      * [AUTO-TRANSLATED:cfb08734]
      */
     void checkSize(time_t second);
-
+public:
     /**
      * 创建并切换到下一个日志切片文件
      * Create and switch to the next log slice file
@@ -445,7 +445,7 @@ private:
      * [AUTO-TRANSLATED:dc55a521]
      */
     void changeFile(time_t second);
-
+    std::string getDir() const { return _dir; }
 private:
     bool _can_write = false;
     //默认最多保存30天的日志文件  [AUTO-TRANSLATED:f16d4661]

@@ -75,8 +75,8 @@ public:
      
      * [AUTO-TRANSLATED:2500c6f1]
      */
-    void resetTime() {
-        _begin = getCurrentMillisecond();
+    void resetTime(int delta = 0) {
+        _begin = getCurrentMillisecond() + delta;
     }
 
 private:
