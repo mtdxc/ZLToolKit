@@ -101,7 +101,7 @@ public:
      * [AUTO-TRANSLATED:1d52d9ee]
      */
     Session::Ptr createSession(const Socket::Ptr &socket);
-
+    Socket::Ptr socket() { return _socket; }
 protected:
     virtual void cloneFrom(const TcpServer &that);
     virtual TcpServer::Ptr onCreatServer(const EventPoller::Ptr &poller);
