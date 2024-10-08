@@ -217,11 +217,10 @@ LogContextCapture::~LogContextCapture() {
 }
 
 LogContextCapture &LogContextCapture::operator<<(ostream &(*f)(ostream &)) {
-    if (!_ctx) {
-        return *this;
+    if (_ctx) {
+        _logger.write(_ctx);
+        _ctx.reset();
     }
-    _logger.write(_ctx);
-    _ctx.reset();
     return *this;
 }
 
@@ -232,7 +231,7 @@ void LogContextCapture::clear() {
 ///////////////////AsyncLogWriter///////////////////
 
 AsyncLogWriter::AsyncLogWriter() : _exit_flag(false) {
-    _thread = std::make_shared<thread>([this]() { this->run(); });
+    _thread = std::make_shared<std::thread>([this]() { this->run(); });
 }
 
 AsyncLogWriter::~AsyncLogWriter() {
@@ -392,7 +391,7 @@ void LogChannel::format(const Logger &logger, ostream &ost, const LogContextPtr 
 
     if (enable_detail) {
         // tag or process name
-        ost << "[" << (!ctx->_flag.empty() ? ctx->_flag : logger.getName()) << "] ";
+        // ost << "[" << (!ctx->_flag.empty() ? ctx->_flag : logger.getName()) << "] ";
         // pid and thread_name
         ost << "[" << printf_pid() << "-" << ctx->_thread_name << "] ";
         // source file location
@@ -417,7 +416,7 @@ void LogChannel::format(const Logger &logger, ostream &ost, const LogContextPtr 
     }
 
     // flush log and new line
-    ost << endl;
+    ost << "\r\n";//endl;
 }
 
 ///////////////////FileChannelBase///////////////////
