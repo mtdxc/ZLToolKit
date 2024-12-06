@@ -114,7 +114,7 @@ vector<shared_ptr<X509> > SSLUtil::loadPublicKey(const string &file_path_or_data
     do {
         cer_type = getCerType(bio, passwd.data(), &x509, cer_type);
         if (cer_type) {
-            ret.push_back(shared_ptr<X509>(x509, [](X509 *ptr) { X509_free(ptr); }));
+            ret.push_back(shared_ptr<X509>(x509, &X509_free));
         }
     } while (cer_type != 0);
     return ret;
@@ -166,9 +166,7 @@ shared_ptr<EVP_PKEY> SSLUtil::loadPrivateKey(const string &file_path_or_data, co
         }
     }
 
-    return shared_ptr<EVP_PKEY>(evp_key, [](EVP_PKEY *ptr) {
-        EVP_PKEY_free(ptr);
-    });
+    return shared_ptr<EVP_PKEY>(evp_key, &EVP_PKEY_free);
 #else
     return nullptr;
 #endif //defined(ENABLE_OPENSSL)
@@ -230,9 +228,8 @@ shared_ptr<SSL> SSLUtil::makeSSL(SSL_CTX *ctx) {
     if (!ssl) {
         return nullptr;
     }
-    return shared_ptr<SSL>(ssl, [](SSL *ptr) {
-        SSL_free(ptr);
-    });
+
+    return shared_ptr<SSL>(ssl, &SSL_free);
 #else
     return nullptr;
 #endif //defined(ENABLE_OPENSSL)
