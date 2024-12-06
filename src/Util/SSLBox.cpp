@@ -127,9 +127,7 @@ int SSL_Initor::findCertificate(SSL *ssl, int *, void *arg) {
         if (!ctx) {
             //未找到对应的证书  [AUTO-TRANSLATED:d4550e6f]
             //No corresponding certificate found
-            std::lock_guard<std::recursive_mutex> lck(ref._mtx);
-            WarnL << "Can not find any certificate of host: " << vhost
-                  << ", select default certificate of: " << ref._default_vhost[(bool) (arg)];
+            TraceL << "Can not find any certificate of host: " << vhost;
         }
     }
 
@@ -363,22 +361,21 @@ void SSL_Box::onRecv(const Buffer::Ptr &buffer) {
         }
         return;
     }
+
 #if defined(ENABLE_OPENSSL)
     uint32_t offset = 0;
     while (offset < buffer->size()) {
         auto nwrite = BIO_write(_read_bio, buffer->data() + offset, buffer->size() - offset);
-        if (nwrite > 0) {
-            //部分或全部写入bio完毕  [AUTO-TRANSLATED:baabfef4]
-            //Partial or full write to bio completed
-            offset += nwrite;
-            flush();
-            continue;
+        if (nwrite <= 0) {
+            //nwrite <= 0,出现异常
+            ErrorL << "Ssl error on BIO_write: " << SSLUtil::getLastError();
+            shutdown();
+            break;
         }
-        //nwrite <= 0,出现异常  [AUTO-TRANSLATED:986e8f36]
-        //nwrite <= 0, an error occurred
-        ErrorL << "Ssl error on BIO_write: " << SSLUtil::getLastError();
-        shutdown();
-        break;
+
+        //部分或全部写入bio完毕
+        offset += nwrite;
+        flush();
     }
 #endif //defined(ENABLE_OPENSSL)
 }
@@ -393,12 +390,15 @@ void SSL_Box::onSend(Buffer::Ptr buffer) {
         }
         return;
     }
+
 #if defined(ENABLE_OPENSSL)
     if (!_server_mode && !_send_handshake) {
         _send_handshake = true;
         SSL_do_handshake(_ssl.get());
     }
+    // 先放到队列中
     _buffer_send.emplace_back(std::move(buffer));
+    // 后刷新
     flush();
 #endif //defined(ENABLE_OPENSSL)
 }
