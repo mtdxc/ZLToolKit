@@ -48,7 +48,7 @@ void doWrite(){
     while(!g_bExitWrite){
         //每隔100ms写一个数据到环形缓存  [AUTO-TRANSLATED:aedec620]
         // Write data to the ring buffer every 100ms
-        g_ringBuf->write(to_string(++i),true);
+        g_ringBuf->write(to_string(++i), true, true);
         usleep(100 * 1000);
     }
 

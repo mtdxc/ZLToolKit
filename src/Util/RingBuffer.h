@@ -267,7 +267,7 @@ private:
         assert(_on_size_changed);
     }
 
-    void write(T in, bool is_key = true) {
+    void write(T in, bool is_key = true, bool save = true) {
         for (auto it = _reader_map.begin(); it != _reader_map.end();) {
             auto reader = it->second.lock();
             if (!reader) {
@@ -279,7 +279,8 @@ private:
             reader->onRead(in, is_key);
             ++it;
         }
-        _storage->write(std::move(in), is_key);
+        if (save)
+            _storage->write(std::move(in), is_key);
     }
 
     void sendMessage(const Any &data) {
@@ -371,7 +372,7 @@ public:
 
     ~RingBuffer() = default;
 
-    void write(T in, bool is_key = true) {
+    void write(T in, bool is_key, bool save=true) {
         if (_delegate) {
             _delegate->onWrite(std::move(in), is_key);
             return;
@@ -382,9 +383,10 @@ public:
             auto &second = pr.second;
             //切换线程后触发onRead事件  [AUTO-TRANSLATED:4ca6647d]
             //Switch thread and trigger onRead event
-            pr.first->async([second, in, is_key]() mutable { second->write(std::move(in), is_key); }, false);
+            pr.first->async([second, in, save, is_key]() mutable { second->write(std::move(in), is_key, save); }, false);
         }
-        _storage->write(std::move(in), is_key);
+        if (save)
+            _storage->write(std::move(in), is_key);
     }
 
     void sendMessage(const Any &data) {
