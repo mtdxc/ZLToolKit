@@ -122,6 +122,7 @@ void Logger::write(const LogContextPtr &ctx) {
 }
 
 void Logger::setLevel(LogLevel level) {
+    _level = level;
     for (auto &chn : _channels) {
         chn.second->setLevel(level);
     }
@@ -204,8 +205,10 @@ const string &LogContext::str() {
 
 static string s_module_name = exeName(false);
 
-LogContextCapture::LogContextCapture(Logger &logger, LogLevel level, const char *file, const char *function, int line, const char *flag) :
-        _ctx(new LogContext(level, file, function, line, s_module_name.c_str() ? s_module_name.c_str() : "", flag)), _logger(logger) {
+LogContextCapture::LogContextCapture(Logger &logger, LogLevel level, const char *file, const char *function, int line, const char *flag) : _logger(logger) { 
+    if (level >= logger.getLevel()) {
+        _ctx.reset(new LogContext(level, file, function, line, s_module_name.c_str() ? s_module_name.c_str() : "", flag));
+    }
 }
 
 LogContextCapture::LogContextCapture(const LogContextCapture &that) : _ctx(that._ctx), _logger(that._logger) {

@@ -113,7 +113,9 @@ public:
      * [AUTO-TRANSLATED:d064460c]
      */
     void setLevel(LogLevel level);
-
+    LogLevel getLevel() const {
+        return _level;
+    }
     /**
      * 获取logger名
      * @return logger名
@@ -147,6 +149,7 @@ private:
     void writeChannels_l(const LogContextPtr &ctx);
 
 private:
+    LogLevel _level = LTrace;
     LogContextPtr _last_log;
     std::string _logger_name;
     std::shared_ptr<LogWriter> _writer;
