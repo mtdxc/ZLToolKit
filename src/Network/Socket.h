@@ -316,20 +316,20 @@ public:
     //接收数据回调  [AUTO-TRANSLATED:e3b7ff16]
     //Receive data callback
     using onReadCB = std::function<void(Buffer::Ptr &buf, struct sockaddr *addr, int addr_len)>;
-    using onMultiReadCB = std::function<void(Buffer::Ptr *buf, struct sockaddr_storage *addr, size_t count)>;
+    using onMultiReadCB = toolkit::function_safe<void(Buffer::Ptr *buf, struct sockaddr_storage *addr, size_t count)>;
 
     //发生错误回调  [AUTO-TRANSLATED:d6897b99]
     //Error callback
-    using onErrCB = std::function<void(const SockException &err)>;
+    using onErrCB = toolkit::function_safe<void(const SockException &err)>;
     //tcp监听接收到连接请求  [AUTO-TRANSLATED:c4e1b206]
     //TCP listen receives a connection request
-    using onAcceptCB = std::function<void(Socket::Ptr &sock, std::shared_ptr<void> &complete)>;
+    using onAcceptCB = toolkit::function_safe<void(Socket::Ptr &sock, std::shared_ptr<void> &complete)>;
     //socket发送缓存清空事件，返回true代表下次继续监听该事件，否则停止  [AUTO-TRANSLATED:2dd1c036]
     //Socket send buffer is cleared event, returns true to continue listening for the event next time, otherwise stops
-    using onFlush = std::function<bool()>;
+    using onFlush = toolkit::function_safe<bool()>;
     //在接收到连接请求前，拦截Socket默认生成方式  [AUTO-TRANSLATED:2f07f268]
     //Intercept the default generation method of the Socket before receiving a connection request
-    using onCreateSocket = std::function<Ptr(const EventPoller::Ptr &poller)>;
+    using onCreateSocket = toolkit::function_safe<Ptr(const EventPoller::Ptr &poller)>;
     //发送buffer成功与否回调  [AUTO-TRANSLATED:4db5efb8]
     //Send buffer success or failure callback
     using onSendResult = BufferList::SendResult;
@@ -678,7 +678,7 @@ public:
      
      * [AUTO-TRANSLATED:5de8aa1c]
      */
-    int getRecvSpeed();
+    size_t getRecvSpeed();
 
     /**
      * 获取发送速率，单位bytes/s
@@ -686,7 +686,23 @@ public:
      
      * [AUTO-TRANSLATED:96a2595d]
      */
-    int getSendSpeed();
+    size_t getSendSpeed();
+
+    /**
+     * 获取接收总字节数
+     * Get the total recv bytes
+
+     * [AUTO-TRANSLATED:5de8aa1c]
+     */
+    size_t getRecvTotalBytes();
+
+    /**
+     * 获取发送总字节数
+     * Get the total send bytes
+
+     * [AUTO-TRANSLATED:5de8aa1c]
+     */
+    size_t getSendTotalBytes();
 
     ////////////SockInfo override////////////
     std::string get_local_ip() override;

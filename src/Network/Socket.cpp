@@ -503,14 +503,24 @@ uint64_t Socket::elapsedTimeAfterFlushed() {
     return _send_flush_ticker.elapsedTime();
 }
 
-int Socket::getRecvSpeed() {
+size_t Socket::getRecvSpeed() {
     _enable_speed = true;
     return _recv_speed.getSpeed();
 }
 
-int Socket::getSendSpeed() {
+size_t Socket::getSendSpeed() {
     _enable_speed = true;
     return _send_speed.getSpeed();
+}
+
+size_t Socket::getRecvTotalBytes() {
+    _enable_speed = true;
+    return _recv_speed.getTotalBytes();
+}
+
+size_t Socket::getSendTotalBytes() {
+    _enable_speed = true;
+    return _send_speed.getTotalBytes();
 }
 
 bool Socket::listen(uint16_t port, const string &local_ip, int backlog) {
